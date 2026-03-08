@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-hover: #1e1e1e;
+  --color-border: #2a2a2a;
+  --color-text: #ededed;
+  --color-text-muted: #888;
+  --color-accent: #3b82f6;
+  --color-accent-dim: #1e40af;
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-danger: #ef4444;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Divergence meter animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.divergence-pulse {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}

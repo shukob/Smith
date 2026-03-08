@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/shukob/Works/Aiful/aquirer-optimization/scripts/deploy.sh /Users/shukob/Works/Aiful/aquirer-optimization/scripts/seed-data.sh)",
+      "Bash(PYTHONPATH=app pytest tests/test_excel_parser.py -v)"
+    ]
+  }
+}

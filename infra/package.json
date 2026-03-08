@@ -1,0 +1,20 @@
+{
+  "name": "smith-infra",
+  "version": "1.0.0",
+  "description": "Pulumi IaC for Smith - Speculative Turn-taking S2S Agent",
+  "main": "index.ts",
+  "scripts": {
+    "up": "pulumi up",
+    "preview": "pulumi preview",
+    "destroy": "pulumi destroy"
+  },
+  "dependencies": {
+    "@pulumi/gcp": "^8.0.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@pulumi/docker-build": "^0.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

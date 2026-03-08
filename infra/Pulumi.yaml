@@ -1,0 +1,11 @@
+name: smith-infra
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: Infrastructure for Smith - Speculative Turn-taking S2S Agent
+config:
+  gcp:project:
+    description: GCP Project ID
+  gcp:region:
+    default: us-central1

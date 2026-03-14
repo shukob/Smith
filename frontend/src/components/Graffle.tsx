@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "@/lib/firebase"; // Assumes firebase is initialized here
 import {
   ReactFlow,
   MiniMap,
@@ -14,6 +12,7 @@ import {
   Edge,
   ConnectionMode,
 } from "@xyflow/react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
 interface ArchElement {
@@ -24,25 +23,25 @@ interface ArchElement {
   target?: string;
 }
 
-export default function OmniGraffle() {
+interface GraffleProps {
+  elements: ArchElement[];
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+}
+
+export default function Graffle({ elements, isMaximized, onToggleMaximize }: GraffleProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
-    // We fetch architecture elements from Firestore
-    // Change "smith_sessions/YOUR_SESSION/architecture_elements" to dynamic session later
-    const q = query(collection(db, "architecture_elements"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => doc.data() as ArchElement);
-      
-      const newNodes: Node[] = [];
-      const newEdges: Edge[] = [];
-      
-      // Auto-layout simple grid
-      let x = 100;
-      let y = 100;
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+    
+    // Auto-layout simple grid
+    let x = 100;
+    let y = 100;
 
-      data.forEach((element, index) => {
+    elements.forEach((element, index) => {
         if (element.type === "node") {
           // Attempt to keep existing positions if they are already in state, else auto-place
           const existingNode = nodes.find(n => n.id === element.id);
@@ -71,19 +70,28 @@ export default function OmniGraffle() {
         }
       });
 
-      setNodes(newNodes);
-      setEdges(newEdges);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    setNodes(newNodes);
+    setEdges(newEdges);
+  }, [elements]);
 
   return (
     <div className="h-full w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col relative">
-      <div className="absolute top-4 left-4 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className="absolute top-4 left-4 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-2">
         <h2 className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-          Omni Graffle
+          Graffle
         </h2>
+        {onToggleMaximize && (
+          <>
+            <div className="w-px h-4 bg-slate-300 dark:bg-slate-600 mx-1" />
+            <button 
+              onClick={onToggleMaximize}
+              className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 transition-colors"
+              title={isMaximized ? "Minimize" : "Maximize"}
+            >
+              {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          </>
+        )}
       </div>
 
       {nodes.length === 0 && edges.length === 0 ? (

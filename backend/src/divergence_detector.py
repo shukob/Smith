@@ -5,7 +5,9 @@ Compare pre-computed prediction embeddings against actual user speech
 to detect meaningful interruptions vs backchannels.
 """
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import os
+from google import genai
+from google.genai import types
 from scipy.spatial.distance import cosine
 from dataclasses import dataclass
 from enum import Enum
@@ -31,27 +33,26 @@ class DivergenceDetector:
     """
     Detects semantic divergence between predicted and actual user speech.
 
-    Uses a lightweight sentence embedding model (all-MiniLM-L6-v2, ~80MB)
-    to compute cosine distance between:
+    Uses Gemini gemini-embedding-2-preview to compute cosine distance between:
     - Pre-computed prediction embeddings (what we think the user will say)
     - Actual partial user speech embeddings (what the user is saying)
-
-    Performance: ~10ms per embedding on CPU.
     """
 
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "gemini-embedding-2-preview",
         threshold_ignore: float = 0.3,
         threshold_interrupt: float = 0.6,
     ):
-        print(f"[DivergenceDetector] Loading model '{model_name}'...")
-        self._model = SentenceTransformer(model_name)
+        print(f"[DivergenceDetector] Using Gemini embedding model '{model_name}'...")
+        self._model_name = model_name
         self._threshold_ignore = threshold_ignore
         self._threshold_interrupt = threshold_interrupt
         self._prediction_embeddings: list[np.ndarray] = []
         self._prediction_texts: list[str] = []
-        print(f"[DivergenceDetector] Model loaded successfully")
+        
+        # Initialize Gemini Client
+        self._client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
     def set_predictions(self, predictions: list[str]) -> None:
         """Pre-compute embeddings for predicted user responses.
@@ -65,14 +66,20 @@ class DivergenceDetector:
             return
 
         self._prediction_texts = predictions
-        self._prediction_embeddings = [
-            self._model.encode(p) for p in predictions
-        ]
+        
+        # Fetch embeddings in batch
+        try:
+            response = self._client.models.embed_content(
+                model=self._model_name,
+                contents=predictions
+            )
+            self._prediction_embeddings = [np.array(emb.values) for emb in response.embeddings]
+        except Exception as e:
+            print(f"[DivergenceDetector] Error getting embeddings: {e}")
+            self._prediction_embeddings = []
 
     def evaluate(self, actual_text: str) -> DivergenceResult:
         """Evaluate semantic divergence of actual speech against predictions.
-
-        This is the hot path - called as each ASR token arrives (~10ms).
 
         Args:
             actual_text: Partial user speech transcribed so far.
@@ -86,8 +93,16 @@ class DivergenceDetector:
                 action=DivergenceAction.MONITOR,
             )
 
-        # Encode actual speech (~10ms on CPU)
-        actual_embedding = self._model.encode(actual_text)
+        # Encode actual speech
+        try:
+            response = self._client.models.embed_content(
+                model=self._model_name,
+                contents=actual_text
+            )
+            actual_embedding = np.array(response.embeddings[0].values)
+        except Exception as e:
+            print(f"[DivergenceDetector] Error embedding actual text: {e}")
+            return DivergenceResult(score=0.0, action=DivergenceAction.MONITOR)
 
         # Find minimum cosine distance across all predictions
         min_distance = float("inf")

@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase"; // Assumes firebase is initialized here
 
 interface TaskNode {
   id: string;
@@ -12,25 +10,55 @@ interface TaskNode {
   priority: "high" | "medium" | "low";
 }
 
-export default function OmniFocus() {
+interface FocusProps {
+  initialTasks: TaskNode[];
+  onEditTask?: (id: string, newTitle: string) => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+}
+
+function EditableTaskTitle({
+  task,
+  onEdit
+}: {
+  task: TaskNode;
+  onEdit?: (id: string, newTitle: string) => void;
+}) {
+  const [title, setTitle] = useState(task.title);
+
+  useEffect(() => {
+    setTitle(task.title);
+  }, [task.title]);
+
+  const handleCommit = () => {
+    if (title !== task.title && onEdit) {
+      onEdit(task.id, title);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={handleCommit}
+      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      className="text-sm font-medium text-slate-800 dark:text-slate-200 bg-transparent border-none focus:outline-none focus:bg-slate-50 dark:focus:bg-slate-700 rounded w-full mb-2 truncate"
+    />
+  );
+}
+
+export default function Focus({ initialTasks, onEditTask, isMaximized, onToggleMaximize }: FocusProps) {
   const [tasks, setTasks] = useState<TaskNode[]>([]);
 
   useEffect(() => {
-    // We fetch all tasks from Firestore
-    // Change "smith_sessions/YOUR_SESSION/tasks" to the dynamic session later
-    const q = query(collection(db, "tasks"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => doc.data() as TaskNode);
-      // Rough sort: high -> medium -> low
-      data.sort((a, b) => {
-        const pMap = { high: 1, medium: 2, low: 3 };
-        return pMap[a.priority] - pMap[b.priority];
-      });
-      setTasks(data);
+    // Rough sort: high -> medium -> low
+    const sorted = [...initialTasks].sort((a, b) => {
+      const pMap = { high: 1, medium: 2, low: 3 };
+      return pMap[a.priority] - pMap[b.priority];
     });
-
-    return () => unsubscribe();
-  }, []);
+    setTasks(sorted);
+  }, [initialTasks]);
 
   const columns = [
     { id: "todo", title: "To Do" },
@@ -55,7 +83,7 @@ export default function OmniFocus() {
     <div className="h-full w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 overflow-y-auto shadow-sm flex flex-col">
       <div className="mb-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 flex-shrink-0">
         <h2 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-          Omni Focus
+          Focus
         </h2>
       </div>
       
@@ -80,7 +108,7 @@ export default function OmniFocus() {
                       key={task.id} 
                       className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded shadow-sm hover:shadow transition-shadow"
                     >
-                      <h4 className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">{task.title}</h4>
+                      <EditableTaskTitle task={task} onEdit={onEditTask} />
                       <div className="flex items-center justify-between mt-3">
                         <span className={`text-[10px] px-2 py-1 rounded border uppercase tracking-wide font-medium ${getPriorityColor(task.priority)}`}>
                           {task.priority || "Normal"}

@@ -9,6 +9,8 @@ export interface AudioStreamMessage {
 
 interface UseAudioStreamOptions {
   wsUrl: string;
+  audioDeviceId?: string;
+  speakerDeviceId?: string;
   onMessage?: (msg: AudioStreamMessage) => void;
   onAudioReceived?: (pcmData: ArrayBuffer) => void;
 }
@@ -22,6 +24,8 @@ interface UseAudioStreamOptions {
  */
 export function useAudioStream({
   wsUrl,
+  audioDeviceId,
+  speakerDeviceId,
   onMessage,
   onAudioReceived,
 }: UseAudioStreamOptions) {
@@ -85,6 +89,7 @@ export function useAudioStream({
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          deviceId: audioDeviceId && audioDeviceId !== "default" ? { exact: audioDeviceId } : undefined,
           sampleRate: 48000,
           channelCount: 1,
           echoCancellation: true,
@@ -120,11 +125,11 @@ export function useAudioStream({
       audioContextRef.current = audioCtx;
       workletNodeRef.current = workletNode;
       setIsRecording(true);
-      console.log("[AudioStream] Recording started");
+      console.log("[AudioStream] Recording started with mic:", audioDeviceId || "default");
     } catch (err) {
       console.error("[AudioStream] Failed to start recording:", err);
     }
-  }, []);
+  }, [audioDeviceId]);
 
   const stopRecording = useCallback(() => {
     if (workletNodeRef.current) {
@@ -187,6 +192,15 @@ export function useAudioStream({
     source.start(startTime);
     nextPlayTimeRef.current = startTime + audioBuffer.duration;
   }, []);
+
+  useEffect(() => {
+    if (playbackContextRef.current && speakerDeviceId && speakerDeviceId !== "default") {
+      if ("setSinkId" in playbackContextRef.current) {
+        (playbackContextRef.current as any).setSinkId(speakerDeviceId).catch(console.error);
+        console.log("[AudioStream] Output speaker set to:", speakerDeviceId);
+      }
+    }
+  }, [speakerDeviceId]);
 
   // Cleanup on unmount
   useEffect(() => {

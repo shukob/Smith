@@ -87,6 +87,54 @@ class MeetingSession:
             # Gemini expects 16kHz - no conversion needed
             await self.gemini_client.send_audio(audio_data)
 
+    async def handle_browser_video(self, base64_data: str) -> None:
+        """Handle screen share video frame from browser."""
+        import base64
+        try:
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            image_bytes = base64.b64decode(base64_data)
+            if self.gemini_client and self.gemini_client.connected:
+                await self.gemini_client.send_video_frame(image_bytes)
+        except Exception as e:
+            print(f"[Session {self.session_id}] Error handling video frame: {e}")
+
+    async def handle_browser_file(self, filename: str, mime_type: str, base64_data: str) -> None:
+        """Handle file upload from browser."""
+        import base64
+        try:
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            file_bytes = base64.b64decode(base64_data)
+            if self.gemini_client and self.gemini_client.connected:
+                await self.gemini_client.send_file_context(file_bytes, mime_type, filename)
+        except Exception as e:
+            print(f"[Session {self.session_id}] Error handling file upload: {e}")
+
+    async def handle_user_edit_outline(self, node_data: dict) -> None:
+        """Handle user direct edit to an outline node from the frontend."""
+        await self.firestore_writer.upsert_outline_node(node_data)
+        
+        msg = f"[System: The user directly updated outline node '{node_data.get('id')}' to: '{node_data.get('text')}']"
+        print(f"[Session {self.session_id}] {msg}")
+        
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_task(self, task_data: dict) -> None:
+        """Handle user direct edit to a task from the frontend."""
+        await self.firestore_writer.upsert_task(task_data)
+        
+        msg = f"[System: The user directly updated task '{task_data.get('id')}' to: '{task_data.get('title')}' ({task_data.get('status')})]"
+        print(f"[Session {self.session_id}] {msg}")
+        
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
     async def _handle_gemini_audio(self, audio_data: bytes) -> None:
         """Handle audio from Gemini (24kHz PCM).
 

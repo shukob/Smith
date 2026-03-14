@@ -21,12 +21,6 @@ session_manager = SessionManager()
 async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown."""
     print("[Smith] Starting up...")
-    # Pre-load sentence-transformers model (warm cache)
-    if settings.enable_speculative_engine:
-        from .divergence_detector import DivergenceDetector
-        _warmup = DivergenceDetector()
-        del _warmup
-        print("[Smith] Divergence detector model pre-loaded")
     yield
     print("[Smith] Shutting down...")
     await session_manager.close_all()
@@ -106,6 +100,18 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
                         )
                     elif msg_type == "disconnect":
                         break
+                    elif msg_type == "video_frame":
+                        await session.handle_browser_video(data.get("data", ""))
+                    elif msg_type == "file_context":
+                        await session.handle_browser_file(
+                            data.get("filename", ""),
+                            data.get("mimeType", ""),
+                            data.get("data", "")
+                        )
+                    elif msg_type == "user_edit_outline":
+                        await session.handle_user_edit_outline(data.get("node", {}))
+                    elif msg_type == "user_edit_task":
+                        await session.handle_user_edit_task(data.get("task", {}))
 
                 except json.JSONDecodeError:
                     pass

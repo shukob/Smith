@@ -45,14 +45,28 @@ class GeminiLiveClient:
         self.on_turn_complete = on_turn_complete
 
         self._client = genai.Client(api_key=settings.google_api_key)
-        self._session = None
-        self._receive_task: Optional[asyncio.Task] = None
+        self._session_task: Optional[asyncio.Task] = None
         self._connected = False
         self._resumption_handle: Optional[str] = None
         self.is_speaking = False
+        
+        # Queues to pass data into the async context manager loop
+        self._audio_queue: asyncio.Queue = asyncio.Queue()
+        self._text_queue: asyncio.Queue = asyncio.Queue()
+        self._video_queue: asyncio.Queue = asyncio.Queue()
+        self._content_queue: asyncio.Queue = asyncio.Queue()
 
     async def connect(self) -> None:
         """Establish connection to Gemini Live API."""
+        if self._connected:
+            return
+
+        self._connected = True
+        self._session_task = asyncio.create_task(self._run_session_loop())
+        print(f"[Gemini] Connected for session {self.session_id}")
+
+    async def _run_session_loop(self) -> None:
+        """Background task maintaining the async context and routing queues."""
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(
@@ -69,25 +83,114 @@ class GeminiLiveClient:
             ) if self._resumption_handle else types.SessionResumptionConfig(),
         )
 
-        self._session = await self._client.aio.live.connect(
-            model=settings.gemini_live_model,
-            config=config,
-        )
-        self._connected = True
-        self._receive_task = asyncio.create_task(self._receive_loop())
-        print(f"[Gemini] Connected for session {self.session_id}")
+        try:
+            async with self._client.aio.live.connect(
+                model=settings.gemini_live_model,
+                config=config,
+            ) as session:
+                
+                # Start the receive loop task tied strictly to this session
+                receive_task = asyncio.create_task(self._receive_loop(session))
+                send_audio_task = asyncio.create_task(self._send_audio_loop(session))
+                send_text_task = asyncio.create_task(self._send_text_loop(session))
+                send_video_task = asyncio.create_task(self._send_video_loop(session))
+                send_content_task = asyncio.create_task(self._send_content_loop(session))
+                
+                # Wait until connected goes false (meaning `close()` was called or error)
+                while self._connected:
+                    await asyncio.sleep(0.1)
+                
+                # Clean teardown
+                receive_task.cancel()
+                send_audio_task.cancel()
+                send_text_task.cancel()
+                send_video_task.cancel()
+                send_content_task.cancel()
 
-    async def _receive_loop(self) -> None:
+        except Exception as e:
+            print(f"[Gemini] Session loop died: {e}")
+            self._connected = False
+
+    async def _send_audio_loop(self, session) -> None:
+        """Consume audio from queue and dispatch to API."""
+        try:
+            while self._connected:
+                pcm_data = await self._audio_queue.get()
+                await session.send_realtime_input(
+                    audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
+                )
+                self._audio_queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[Gemini] Send audio loop error: {e}")
+
+    async def _send_text_loop(self, session) -> None:
+        """Consume context text from queue and dispatch to API."""
+        try:
+            while self._connected:
+                text = await self._text_queue.get()
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[types.Part(text=text)],
+                    ),
+                    turn_complete=False,
+                )
+                self._text_queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[Gemini] Send text loop error: {e}")
+
+    async def _send_video_loop(self, session) -> None:
+        """Consume video frames from queue and dispatch to API."""
+        try:
+            while self._connected:
+                image_bytes = await self._video_queue.get()
+                await session.send_realtime_input(
+                    video=types.Blob(data=image_bytes, mime_type="image/jpeg")
+                )
+                self._video_queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[Gemini] Send video loop error: {e}")
+
+    async def _send_content_loop(self, session) -> None:
+        """Consume file uploads from queue and dispatch to API as context."""
+        try:
+            while self._connected:
+                file_msg = await self._content_queue.get()
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[types.Part.from_bytes(
+                            data=file_msg["data"],
+                            mime_type=file_msg["mime_type"],
+                        )],
+                    ),
+                    turn_complete=True,
+                )
+                self._content_queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[Gemini] Send content loop error: {e}")
+
+    async def _receive_loop(self, session) -> None:
         """Process incoming messages from Gemini Live API."""
         try:
-            while self._connected and self._session:
-                async for response in self._session.receive():
-                    await self._handle_response(response)
+            while self._connected:
+                async for response in session.receive():
+                    await self._handle_response(session, response)
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             print(f"[Gemini] Receive loop error: {e}")
             self._connected = False
 
-    async def _handle_response(self, response) -> None:
+    async def _handle_response(self, session, response) -> None:
         """Route a single response message."""
         # Server content (audio, text, interruption)
         if response.server_content:
@@ -105,9 +208,6 @@ class GeminiLiveClient:
                     if part.inline_data and isinstance(part.inline_data.data, bytes):
                         if self.on_audio:
                             await self.on_audio(part.inline_data.data)
-                    # Text (model's spoken words transcribed)
-                    elif part.text and self.on_transcript:
-                        await self.on_transcript("assistant", part.text)
 
             # Interruption detected by Gemini
             if sc.interrupted:
@@ -142,7 +242,7 @@ class GeminiLiveClient:
                         name=fc.name,
                         response=result or {"status": "ok"},
                     )
-                    await self._session.send_tool_response(
+                    await session.send_tool_response(
                         function_responses=[func_response]
                     )
 
@@ -155,45 +255,42 @@ class GeminiLiveClient:
         # Go away signal
         if response.go_away:
             print(f"[Gemini] GoAway received, time left: {response.go_away.time_left}")
-            # Could trigger reconnection here
 
     async def send_audio(self, pcm_data: bytes) -> None:
         """Send PCM16 16kHz mono audio to Gemini."""
-        if self._session and self._connected:
-            try:
-                await self._session.send_realtime_input(
-                    audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
-                )
-            except Exception as e:
-                print(f"[Gemini] Failed to send audio: {e}")
+        if self._connected:
+            await self._audio_queue.put(pcm_data)
+
+    async def send_video_frame(self, image_data: bytes) -> None:
+        """Send a JPEG/PNG image frame to Gemini."""
+        if self._connected:
+            await self._video_queue.put(image_data)
+
+    async def send_file_context(self, file_data: bytes, mime_type: str, filename: str) -> None:
+        """Upload an entire file to Gemini as context."""
+        if self._connected:
+            await self._content_queue.put({
+                "data": file_data,
+                "mime_type": mime_type,
+                "filename": filename
+            })
 
     async def send_text_context(self, text: str) -> None:
         """Inject text context into the session (e.g., speaker metadata)."""
-        if self._session and self._connected:
-            try:
-                await self._session.send_client_content(
-                    turns=types.Content(
-                        role="user",
-                        parts=[types.Part(text=text)],
-                    ),
-                    turn_complete=False,
-                )
-            except Exception as e:
-                print(f"[Gemini] Failed to send text context: {e}")
+        if self._connected:
+            await self._text_queue.put(text)
 
     async def close(self) -> None:
         """Close the Gemini Live connection."""
         self._connected = False
-        if self._receive_task:
-            self._receive_task.cancel()
+        
+        if self._session_task:
+            self._session_task.cancel()
             try:
-                await self._receive_task
+                await self._session_task
             except asyncio.CancelledError:
                 pass
-
-        if self._session:
-            await self._session.close()
-            self._session = None
+            self._session_task = None
 
         print(f"[Gemini] Connection closed for session {self.session_id}")
 

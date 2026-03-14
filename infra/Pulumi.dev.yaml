@@ -1,3 +1,4 @@
 config:
   gcp:project: cogent-silicon-489609-d0
   gcp:region: asia-northeast1
+  smith-infra:DEPLOY_TIMESTAMP: "1773509195"

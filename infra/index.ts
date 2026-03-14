@@ -61,6 +61,15 @@ const simliApiKeySecret = new gcp.secretmanager.Secret(
   { dependsOn: enabledApis }
 );
 
+const perplexityApiKeySecret = new gcp.secretmanager.Secret(
+  "perplexity-api-key",
+  {
+    secretId: "smith-perplexity-api-key",
+    replication: { auto: {} },
+  },
+  { dependsOn: enabledApis }
+);
+
 const simliFaceIdSecret = new gcp.secretmanager.Secret(
   "simli-face-id",
   {
@@ -142,6 +151,10 @@ const backendService = new gcp.cloudrunv2.Service(
           },
           envs: [
             {
+              name: "DEPLOY_TIMESTAMP",
+              value: new Date().toISOString(),
+            },
+            {
               name: "GCP_PROJECT_ID",
               value: project,
             },
@@ -158,6 +171,15 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: googleApiKeySecret.secretId,
+                  version: "1", // Force to version 1 instead of latest
+                },
+              },
+            },
+            {
+              name: "PERPLEXITY_API_KEY",
+              valueSource: {
+                secretKeyRef: {
+                  secret: perplexityApiKeySecret.secretId,
                   version: "latest",
                 },
               },
@@ -167,7 +189,7 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: simliApiKeySecret.secretId,
-                  version: "latest",
+                  version: "1",
                 },
               },
             },
@@ -176,7 +198,7 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: simliFaceIdSecret.secretId,
-                  version: "latest",
+                  version: "1",
                 },
               },
             },
@@ -224,4 +246,5 @@ docker push ${region}-docker.pkg.dev/${project}/smith/backend
 echo -n "YOUR_GEMINI_KEY" | gcloud secrets versions add smith-google-api-key --data-file=-
 echo -n "YOUR_SIMLI_KEY" | gcloud secrets versions add smith-simli-api-key --data-file=-
 echo -n "YOUR_FACE_ID" | gcloud secrets versions add smith-simli-face-id --data-file=-
+echo -n "YOUR_PERPLEXITY_KEY" | gcloud secrets versions add smith-perplexity-api-key --data-file=-
 `;

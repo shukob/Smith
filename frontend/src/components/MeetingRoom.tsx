@@ -4,24 +4,28 @@ import { useState, useCallback, useMemo } from "react";
 import { ControlBar } from "./ControlBar";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
 import { AvatarPanel } from "./AvatarPanel";
-import OmniOutline from "./OmniOutline";
-import OmniGraffle from "./OmniGraffle";
-import OmniFocus from "./OmniFocus";
-import OmniPlan from "./OmniPlan";
+import Outline from "./Outline";
+import Graffle from "./Graffle";
+import Focus from "./Focus";
+import Plan from "./Plan";
 import { DivergenceIndicator } from "./DivergenceIndicator";
 import { useAudioStream, type AudioStreamMessage } from "@/hooks/useAudioStream";
 import { useFirestore } from "@/hooks/useFirestore";
+import { useDevices } from "@/hooks/useDevices";
+import { Sidebar } from "./Sidebar";
 
 const WS_URL =
   process.env.NEXT_PUBLIC_BACKEND_WS_URL || "ws://localhost:8080/ws/meeting";
 
 export function MeetingRoom() {
-  const [sessionId] = useState(
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sessionId, setSessionId] = useState(
     () => `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   );
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [speculativeEnabled, setSpeculativeEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [maximizedPane, setMaximizedPane] = useState<"outline" | "graffle" | "focus" | "plan" | null>(null);
 
   // Divergence state
   const [divergence, setDivergence] = useState({
@@ -33,18 +37,36 @@ export function MeetingRoom() {
   });
 
   // Firestore real-time data
-  const { requirements, summary } = useFirestore(sessionId);
+  const { requirements, summary, outlineNodes, archElements, tasks: focusTasks, scheduleItems } = useFirestore(sessionId);
+
+  // Device selection
+  const devices = useDevices();
 
   const handleMessage = useCallback((msg: AudioStreamMessage) => {
     switch (msg.type) {
       case "transcript":
-        setTranscript((prev) => [
-          ...prev,
-          {
-            role: msg.role as "user" | "assistant",
-            text: msg.text as string,
-          },
-        ]);
+        setTranscript((prev) => {
+          const last = prev[prev.length - 1];
+          const now = Date.now();
+          // Group if same role and within 3 seconds of the last update
+          if (last && last.role === msg.role && (now - (last.lastUpdate || 0)) < 3000) {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...last,
+              text: last.text + msg.text,
+              lastUpdate: now,
+            };
+            return updated;
+          }
+          return [
+            ...prev,
+            {
+              role: msg.role as "user" | "assistant",
+              text: msg.text as string,
+              lastUpdate: now,
+            },
+          ];
+        });
         break;
 
       case "divergence":
@@ -95,6 +117,8 @@ export function MeetingRoom() {
     sendMessage,
   } = useAudioStream({
     wsUrl,
+    audioDeviceId: devices.selectedMic,
+    speakerDeviceId: devices.selectedSpeaker,
     onMessage: handleMessage,
   });
 
@@ -106,13 +130,70 @@ export function MeetingRoom() {
     [sendMessage]
   );
 
+  const handleSelectSession = useCallback((id: string) => {
+    if (isConnected) {
+      disconnect();
+    }
+    setSessionId(id);
+    setTranscript([]);
+    setDivergence({
+      score: 0,
+      action: null,
+      predicted: null,
+      actual: null,
+      isActive: false,
+    });
+    setIsSpeaking(false);
+  }, [isConnected, disconnect]);
+
+  const handleNewSession = useCallback(() => {
+    if (isConnected) {
+      disconnect();
+    }
+    const newId = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    setSessionId(newId);
+    setTranscript([]);
+    setDivergence({
+      score: 0,
+      action: null,
+      predicted: null,
+      actual: null,
+      isActive: false,
+    });
+    setIsSpeaking(false);
+  }, [isConnected, disconnect]);
+
+  const handleEditOutlineNode = useCallback((id: string, newText: string) => {
+    const node = outlineNodes.find(n => n.id === id);
+    if (!node) return;
+    const updatedNode = { ...node, text: newText };
+    sendMessage({ type: "user_edit_outline", node: updatedNode });
+  }, [outlineNodes, sendMessage]);
+
+  const handleEditFocusTask = useCallback((id: string, newTitle: string) => {
+    const task = focusTasks.find(t => t.id === id);
+    if (!task) return;
+    const updatedTask = { ...task, title: newTitle };
+    sendMessage({ type: "user_edit_task", task: updatedTask });
+  }, [focusTasks, sendMessage]);
+
   return (
     <div className="flex flex-col h-full">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        currentSessionId={sessionId}
+        onSelectSession={handleSelectSession}
+        onNewSession={handleNewSession}
+      />
       {/* Top bar */}
       <ControlBar
         isConnected={isConnected}
         isRecording={isRecording}
         speculativeEnabled={speculativeEnabled}
+        devices={devices}
+        onSelectMic={devices.selectMic}
+        onSelectSpeaker={devices.selectSpeaker}
         onConnect={connect}
         onStartRecording={startRecording}
         onStopRecording={() => {
@@ -121,6 +202,10 @@ export function MeetingRoom() {
         }}
         onDisconnect={disconnect}
         onToggleSpeculative={handleToggleSpeculative}
+        onShareScreen={() => { console.log("TODO: Share screen"); }}
+        isSharingScreen={false}
+        onUploadFile={(file) => { console.log("TODO: Upload file", file); }}
+        onOpenSidebar={() => setIsSidebarOpen(true)}
       />
 
       {/* Main content: 3-column layout */}
@@ -135,26 +220,51 @@ export function MeetingRoom() {
           </div>
         </div>
 
-        {/* Main content: Omni 4-Pane Dashboard */}
+        {/* Main content: 4-Pane Dashboard */}
         <div className="flex-1 flex flex-col p-4 gap-4 bg-slate-50 dark:bg-slate-950 overflow-hidden">
-          {/* Top Row */}
-          <div className="flex-1 flex gap-4 min-h-[300px]">
-             <div className="flex-1">
-               <OmniOutline />
-             </div>
-             <div className="flex-1">
-               <OmniGraffle />
-             </div>
-          </div>
-          {/* Bottom Row */}
-          <div className="flex-1 flex gap-4 min-h-[300px]">
-             <div className="flex-1">
-               <OmniFocus />
-             </div>
-             <div className="flex-1 overflow-hidden">
-               <OmniPlan />
-             </div>
-          </div>
+          {maximizedPane === "outline" && (
+            <div className="flex-1 overflow-hidden">
+              <Outline nodes={outlineNodes} onEditNode={handleEditOutlineNode} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+            </div>
+          )}
+          {maximizedPane === "graffle" && (
+            <div className="flex-1 overflow-hidden">
+              <Graffle elements={archElements} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+            </div>
+          )}
+          {maximizedPane === "focus" && (
+            <div className="flex-1 overflow-hidden">
+              <Focus initialTasks={focusTasks} onEditTask={handleEditFocusTask} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+            </div>
+          )}
+          {maximizedPane === "plan" && (
+            <div className="flex-1 overflow-hidden">
+              <Plan items={scheduleItems} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+            </div>
+          )}
+
+          {!maximizedPane && (
+            <>
+              {/* Top Row */}
+              <div className="flex-1 flex gap-4 min-h-[300px]">
+                 <div className="flex-1 overflow-hidden">
+                   <Outline nodes={outlineNodes} onEditNode={handleEditOutlineNode} isMaximized={false} onToggleMaximize={() => setMaximizedPane("outline")} />
+                 </div>
+                 <div className="flex-1 overflow-hidden">
+                   <Graffle elements={archElements} isMaximized={false} onToggleMaximize={() => setMaximizedPane("graffle")} />
+                 </div>
+              </div>
+              {/* Bottom Row */}
+              <div className="flex-1 flex gap-4 min-h-[300px]">
+                 <div className="flex-1 overflow-hidden">
+                   <Focus initialTasks={focusTasks} onEditTask={handleEditFocusTask} isMaximized={false} onToggleMaximize={() => setMaximizedPane("focus")} />
+                 </div>
+                 <div className="flex-1 overflow-hidden">
+                   <Plan items={scheduleItems} isMaximized={false} onToggleMaximize={() => setMaximizedPane("plan")} />
+                 </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

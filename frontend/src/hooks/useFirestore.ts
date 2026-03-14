@@ -139,6 +139,19 @@ export function useSessionsList() {
   const [sessions, setSessions] = useState<{ id: string; metadata: SessionData["metadata"] }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Expose a helper to toggle archive status directly from the frontend
+  const toggleArchiveStatus = async (sessionId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === "archived" ? "active" : "archived";
+      const docRef = doc(db, "smith_sessions", sessionId);
+      await import("firebase/firestore").then(({ updateDoc }) => 
+        updateDoc(docRef, { "metadata.status": newStatus })
+      );
+    } catch (e) {
+      console.error("Error toggling archive status:", e);
+    }
+  };
+
   useEffect(() => {
     const q = query(collection(db, "smith_sessions"));
     const unsubscribe = onSnapshot(
@@ -169,5 +182,5 @@ export function useSessionsList() {
     return () => unsubscribe();
   }, []);
 
-  return { sessions, isLoading };
+  return { sessions, isLoading, toggleArchiveStatus };
 }

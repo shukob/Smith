@@ -41,7 +41,7 @@ class AdkBackgroundAgent:
             "You are the background strategic brain behind a technical consulting AI. "
             "You will receive batches of transcript from an ongoing meeting. "
             "Your job is to: \n"
-            "1. Keep the meeting summary updated using 'update_summary' if topics change.\n"
+            "1. Keep the meeting summary updated using 'update_summary' if topics change. Always generate a concise 3-4 word title for the meeting.\n"
             "2. Maintain an Outline representing Requirements, Goals, and Assumptions using 'upsert_outline_node'.\n"
             "3. Build an Architecture Diagram logically whenever system components are discussed using 'upsert_architecture_element'.\n"
             "4. Track action items on a Kanban board using 'upsert_task'.\n"
@@ -219,16 +219,18 @@ class AdkBackgroundAgent:
     async def update_summary(
         self,
         summary: str,
-        topics_discussed: list[str]
+        topics_discussed: list[str],
+        title: str = ""
     ) -> str:
         """Update the global meeting summary after significant context changes.
 
         Args:
             summary: Markdown summary of the meeting.
             topics_discussed: Array of topics discussed.
+            title: A concise 3-4 word title representing the meeting's main subject.
         """
         try:
-            await self.firestore_writer.update_summary(summary, topics_discussed)
+            await self.firestore_writer.update_summary(summary, topics_discussed, title)
             print("[ADK Tool] Summary updated.")
             return "Summary updated successfully."
         except Exception as e:

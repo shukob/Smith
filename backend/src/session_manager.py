@@ -123,6 +123,17 @@ class MeetingSession:
         if hasattr(self, 'adk_agent'):
             self.adk_agent.append_transcript("system", msg)
 
+    async def handle_user_delete_outline(self, node_id: str) -> None:
+        """Handle user deleting an outline node from the frontend."""
+        await self.firestore_writer.delete_outline_node(node_id)
+        msg = f"[System: The user deleted outline node '{node_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
     async def handle_user_edit_task(self, task_data: dict) -> None:
         """Handle user direct edit to a task from the frontend."""
         await self.firestore_writer.upsert_task(task_data)
@@ -134,6 +145,69 @@ class MeetingSession:
             await self.gemini_client.send_text_context(msg)
         if hasattr(self, 'adk_agent'):
             self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_task(self, task_id: str) -> None:
+        """Handle user deleting a task from the frontend."""
+        await self.firestore_writer.delete_task(task_id)
+        msg = f"[System: The user deleted task '{task_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_arch(self, element_data: dict) -> None:
+        """Handle user direct edit to an architecture element."""
+        await self.firestore_writer.upsert_architecture_element(element_data)
+        msg = f"[System: The user directly updated architecture element '{element_data.get('id')}']"
+        print(f"[Session {self.session_id}] {msg}")
+        
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_arch(self, element_id: str) -> None:
+        """Handle user deleting an architecture element."""
+        await self.firestore_writer.delete_architecture_element(element_id)
+        msg = f"[System: The user deleted architecture element '{element_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_schedule(self, schedule_data: dict) -> None:
+        """Handle user direct edit to a schedule item."""
+        await self.firestore_writer.upsert_schedule_item(schedule_data)
+        msg = f"[System: The user directly updated schedule item '{schedule_data.get('id')}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_schedule(self, schedule_id: str) -> None:
+        """Handle user deleting a schedule item."""
+        await self.firestore_writer.delete_schedule_item(schedule_id)
+        msg = f"[System: The user deleted schedule item '{schedule_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_title(self, title: str) -> None:
+        """Handle user direct edit to the session title."""
+        await self.firestore_writer.update_title(title)
+        print(f"[Session {self.session_id}] User updated session title to: {title}")
+
+    async def handle_user_toggle_archive(self, is_archived: bool) -> None:
+        """Handle user toggling the archive status of the session."""
+        status = "archived" if is_archived else "active"
+        await self.firestore_writer.set_status(status)
+        print(f"[Session {self.session_id}] User set session status to: {status}")
 
     async def _handle_gemini_audio(self, audio_data: bytes) -> None:
         """Handle audio from Gemini (24kHz PCM).
@@ -245,6 +319,7 @@ class MeetingSession:
             await self.firestore_writer.update_summary(
                 args.get("summary", ""),
                 args.get("topics_discussed", []),
+                args.get("title", ""),
             )
             try:
                 await self.websocket.send_json({

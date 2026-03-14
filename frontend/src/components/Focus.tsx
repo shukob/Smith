@@ -13,6 +13,9 @@ interface TaskNode {
 interface FocusProps {
   initialTasks: TaskNode[];
   onEditTask?: (id: string, newTitle: string) => void;
+  onUpdateTaskProperty?: (id: string, property: keyof TaskNode, value: string) => void;
+  onDeleteTask?: (id: string) => void;
+  onAddTask?: (status: TaskNode["status"]) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
@@ -48,7 +51,17 @@ function EditableTaskTitle({
   );
 }
 
-export default function Focus({ initialTasks, onEditTask, isMaximized, onToggleMaximize }: FocusProps) {
+import { Trash2, AlertCircle, Clock, CheckCircle2, User, Circle } from "lucide-react";
+
+export default function Focus({ 
+  initialTasks, 
+  onEditTask, 
+  onUpdateTaskProperty,
+  onDeleteTask,
+  onAddTask,
+  isMaximized, 
+  onToggleMaximize 
+}: FocusProps) {
   const [tasks, setTasks] = useState<TaskNode[]>([]);
 
   useEffect(() => {
@@ -106,27 +119,87 @@ export default function Focus({ initialTasks, onEditTask, isMaximized, onToggleM
                   {columnTasks.map((task) => (
                     <div 
                       key={task.id} 
-                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded shadow-sm hover:shadow transition-shadow"
+                      className="group bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded shadow-sm hover:shadow transition-shadow relative"
                     >
-                      <EditableTaskTitle task={task} onEdit={onEditTask} />
-                      <div className="flex items-center justify-between mt-3">
-                        <span className={`text-[10px] px-2 py-1 rounded border uppercase tracking-wide font-medium ${getPriorityColor(task.priority)}`}>
-                          {task.priority || "Normal"}
-                        </span>
-                        {task.assignee && (
-                          <div className="flex items-center gap-1">
-                            <div className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
-                              {task.assignee.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[60px]">
-                              {task.assignee}
-                            </span>
+                      {onDeleteTask && (
+                        <button
+                          onClick={() => onDeleteTask(task.id)}
+                          className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Delete task"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                      
+                      <div className="pr-6">
+                        <EditableTaskTitle task={task} onEdit={onEditTask} />
+                      </div>
+                      
+                      <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
+                        {/* Priority Selector */}
+                        <div className="relative group/priority">
+                          <select
+                            value={task.priority}
+                            onChange={(e) => onUpdateTaskProperty?.(task.id, "priority", e.target.value)}
+                            disabled={!onUpdateTaskProperty}
+                            className={`appearance-none text-[10px] pl-2 pr-6 py-1 rounded border uppercase tracking-wide font-medium cursor-pointer outline-none ${getPriorityColor(task.priority)} ${!onUpdateTaskProperty ? 'cursor-default' : ''}`}
+                          >
+                            <option value="high">HIGH</option>
+                            <option value="medium">MEDIUM</option>
+                            <option value="low">LOW</option>
+                          </select>
+                          <AlertCircle size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                        </div>
+
+                        {/* Status Selector */}
+                        <div className="relative group/status hidden group-hover:block transition-all">
+                          <select
+                            value={task.status}
+                            onChange={(e) => onUpdateTaskProperty?.(task.id, "status", e.target.value)}
+                            disabled={!onUpdateTaskProperty}
+                            className={`appearance-none text-[10px] pl-2 pr-5 py-1 rounded border cursor-pointer outline-none bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600`}
+                          >
+                            <option value="todo">To Do</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="done">Done</option>
+                          </select>
+                          {task.status === "todo" && <Circle size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />}
+                          {task.status === "in_progress" && <Clock size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none text-blue-500" />}
+                          {task.status === "done" && <CheckCircle2 size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none text-green-500" />}
+                        </div>
+
+                        {/* Assignee Input */}
+                        <div className="flex items-center gap-1">
+                          <div className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-[10px] font-bold text-indigo-700 dark:text-indigo-300 shrink-0">
+                            {task.assignee ? task.assignee.charAt(0).toUpperCase() : <User size={10} />}
                           </div>
-                        )}
+                          {onUpdateTaskProperty ? (
+                            <input
+                              type="text"
+                              value={task.assignee || ""}
+                              onChange={(e) => onUpdateTaskProperty(task.id, "assignee", e.target.value)}
+                              placeholder="Assignee"
+                              className="text-xs text-slate-500 dark:text-slate-400 bg-transparent border-none outline-none w-[70px] hover:bg-slate-50 focus:bg-slate-50 dark:hover:bg-slate-700 dark:focus:bg-slate-700 rounded px-1 transition-colors"
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[60px]">
+                              {task.assignee || "Unassigned"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
+                
+                {onAddTask && (
+                  <button
+                    onClick={() => onAddTask(col.id as TaskNode["status"])}
+                    className="mt-3 flex items-center justify-center gap-1.5 w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50 rounded transition-colors border border-transparent hover:border-slate-300 dark:hover:border-slate-600 border-dashed"
+                  >
+                    <span>+ Add Task</span>
+                  </button>
+                )}
               </div>
             );
           })}

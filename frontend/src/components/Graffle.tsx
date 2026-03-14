@@ -15,40 +15,40 @@ import {
 import { Maximize2, Minimize2 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
-interface ArchElement {
+export interface ArchitectureElement {
   id: string;
   type: "node" | "edge";
   label?: string;
   source?: string;
   target?: string;
+  position?: { x: number; y: number };
 }
 
 interface GraffleProps {
-  elements: ArchElement[];
+  elements: ArchitectureElement[];
+  onUpdateElement?: (id: string, updates: Partial<ArchitectureElement>) => void;
+  onDeleteElement?: (id: string) => void;
+  onAddElement?: (type: ArchitectureElement["type"]) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
 
-export default function Graffle({ elements, isMaximized, onToggleMaximize }: GraffleProps) {
+export default function Graffle({ elements, onUpdateElement, onDeleteElement, onAddElement, isMaximized, onToggleMaximize }: GraffleProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
-    const newNodes: Node[] = [];
-    const newEdges: Edge[] = [];
-    
-    // Auto-layout simple grid
     let x = 100;
     let y = 100;
 
-    elements.forEach((element, index) => {
-        if (element.type === "node") {
-          // Attempt to keep existing positions if they are already in state, else auto-place
-          const existingNode = nodes.find(n => n.id === element.id);
-          
-          newNodes.push({
+    setNodes((prevNodes) => {
+      return elements
+        .filter(el => el.type === "node")
+        .map((element, index) => {
+          const existingNode = prevNodes.find(n => n.id === element.id);
+          return {
             id: element.id,
-            position: existingNode ? existingNode.position : { x: x + (index % 3) * 200, y: y + Math.floor(index / 3) * 150 },
+            position: element.position || existingNode?.position || { x: x + (index % 3) * 200, y: y + Math.floor(index / 3) * 150 },
             data: { label: element.label || "System Node" },
             style: { 
               background: '#fff', 
@@ -58,28 +58,70 @@ export default function Graffle({ elements, isMaximized, onToggleMaximize }: Gra
               fontSize: '14px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }
-          });
-        } else if (element.type === "edge" && element.source && element.target) {
-          newEdges.push({
-            id: element.id,
-            source: element.source,
-            target: element.target,
-            animated: true,
-            style: { stroke: '#94a3b8', strokeWidth: 2 },
-          });
-        }
+          };
       });
+    });
 
-    setNodes(newNodes);
-    setEdges(newEdges);
-  }, [elements]);
+    setEdges(() => {
+      return elements
+        .filter(el => el.type === "edge" && el.source && el.target)
+        .map((element) => ({
+          id: element.id,
+          source: element.source!,
+          target: element.target!,
+          animated: true,
+          style: { stroke: '#94a3b8', strokeWidth: 2 },
+        }));
+    });
+  }, [elements, setNodes, setEdges]); 
+
+  const onNodesDelete = useCallback((deleted: Node[]) => {
+    if (onDeleteElement) {
+      deleted.forEach(node => onDeleteElement(node.id));
+    }
+  }, [onDeleteElement]);
+
+  const onEdgesDelete = useCallback((deleted: Edge[]) => {
+    if (onDeleteElement) {
+      deleted.forEach(edge => onDeleteElement(edge.id));
+    }
+  }, [onDeleteElement]);
+
+  // Handle local dragging updates
+  const onNodeDragStop = useCallback((event: any, node: Node) => {
+    if (onUpdateElement) {
+      onUpdateElement(node.id, {
+        position: node.position
+      });
+    }
+  }, [onUpdateElement]);
 
   return (
-    <div className="h-full w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col relative">
-      <div className="absolute top-4 left-4 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-          Graffle
-        </h2>
+    <div className="h-full w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 overflow-hidden shadow-sm flex flex-col relative min-h-[300px]">
+      <div className="flex items-center justify-between mb-2 px-2 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded py-1">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+            Graffle
+          </h2>
+          {onAddElement && (
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => onAddElement("node")}
+                className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded transition-colors"
+                title="Add Node"
+              >
+                + Node
+              </button>
+              <button 
+                onClick={() => onAddElement("edge")}
+                className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded transition-colors"
+                title="Add Edge"
+              >
+                + Edge
+              </button>
+            </div>
+          )}
+        </div>
         {onToggleMaximize && (
           <>
             <div className="w-px h-4 bg-slate-300 dark:bg-slate-600 mx-1" />
@@ -94,24 +136,22 @@ export default function Graffle({ elements, isMaximized, onToggleMaximize }: Gra
         )}
       </div>
 
-      {nodes.length === 0 && edges.length === 0 ? (
-        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-          <div className="text-sm text-slate-400 italic text-center px-4 bg-white/50 backdrop-blur-sm rounded pb-20">
-            No architecture mapped yet. ADK Agent will create diagrams when systems are discussed.
-          </div>
-        </div>
-      ) : null}
-
       <div className="flex-grow w-full h-full min-h-[400px]">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          connectionMode={ConnectionMode.Loose}
-          fitView
-          attributionPosition="bottom-right"
-        >
+          <ReactFlow 
+            nodes={nodes} 
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodesDelete={onNodesDelete}
+            onEdgesDelete={onEdgesDelete}
+            onNodeDragStop={onNodeDragStop}
+            connectionMode={ConnectionMode.Loose}
+            fitView 
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.5}
+            maxZoom={2}
+            attributionPosition="bottom-right"
+          >
           <Controls className="fill-slate-500 bg-white border-slate-200 shadow-sm" />
           <MiniMap 
             nodeColor="#cbd5e1" 

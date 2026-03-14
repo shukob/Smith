@@ -14,16 +14,23 @@ interface OutlineNode {
 interface OutlineProps {
   nodes: OutlineNode[];
   onEditNode?: (id: string, newText: string) => void;
+  onUpdateNodeType?: (id: string, newType: OutlineNode["type"]) => void;
+  onDeleteNode?: (id: string) => void;
+  onAddChildNode?: (parentId: string) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
 
 function OutlineNodeItem({ 
   node, 
-  onEdit 
+  onEdit,
+  onAddChild,
+  onAddSibling
 }: { 
   node: OutlineNode; 
   onEdit?: (id: string, newText: string) => void;
+  onAddChild?: (id: string) => void;
+  onAddSibling?: (id: string) => void;
 }) {
   const [text, setText] = useState(node.text);
 
@@ -43,13 +50,34 @@ function OutlineNodeItem({
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={handleCommit}
-      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+          if (onAddSibling) onAddSibling(node.id);
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          e.currentTarget.blur();
+          if (onAddChild) onAddChild(node.id);
+        }
+      }}
       className="text-sm font-medium text-slate-700 dark:text-slate-200 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 w-full"
     />
   );
 }
 
-export default function Outline({ nodes, onEditNode, isMaximized, onToggleMaximize }: OutlineProps) {
+import { Trash2, Plus } from "lucide-react";
+
+export default function Outline({ 
+  nodes, 
+  onEditNode, 
+  onUpdateNodeType,
+  onDeleteNode,
+  onAddChildNode,
+  isMaximized, 
+  onToggleMaximize 
+}: OutlineProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -98,13 +126,51 @@ export default function Outline({ nodes, onEditNode, isMaximized, onToggleMaximi
 
                 {/* Text Input */}
                 <div className="flex-1 min-w-0">
-                  <OutlineNodeItem node={node} onEdit={onEditNode} />
+                  <OutlineNodeItem 
+                    node={node} 
+                    onEdit={onEditNode} 
+                    onAddChild={onAddChildNode}
+                    onAddSibling={(id) => {
+                      // Attempt to add a sibling by finding the parent
+                      const parentId = nodes.find(n => n.id === id)?.parent_id || "";
+                      if (onAddChildNode) onAddChildNode(parentId);
+                    }}
+                  />
                 </div>
 
-                {/* Type badge */}
-                <span className="ml-auto opacity-0 group-hover:opacity-100 text-[10px] uppercase tracking-wider bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-                  {node.type}
-                </span>
+                {/* Actions (visible on hover) */}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {onUpdateNodeType && (
+                     <select
+                      value={node.type}
+                      onChange={(e) => onUpdateNodeType(node.id, e.target.value as OutlineNode["type"])}
+                      className="text-[10px] uppercase tracking-wider bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1 py-0.5 rounded border-none outline-none cursor-pointer hover:bg-slate-300 dark:hover:bg-slate-600 mr-1"
+                    >
+                      <option value="requirement">REQ</option>
+                      <option value="goal">GOAL</option>
+                      <option value="assumption">ASM</option>
+                      <option value="note">NOTE</option>
+                    </select>
+                  )}
+                  {onAddChildNode && (
+                    <button 
+                      onClick={() => onAddChildNode(node.id)}
+                      className="text-slate-400 hover:text-indigo-500 p-1 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+                      title="Add child node"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  )}
+                  {onDeleteNode && (
+                    <button 
+                      onClick={() => onDeleteNode(node.id)}
+                      className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30"
+                      title="Delete node"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Recursive Children */}
@@ -134,7 +200,17 @@ export default function Outline({ nodes, onEditNode, isMaximized, onToggleMaximi
       </div>
       <div className="flex-1 overflow-y-auto pr-2">
         {nodes.length === 0 ? (
-          <div className="text-sm text-slate-400 italic text-center mt-10">No items in outline yet. Start speaking requirements!</div>
+          <div className="flex flex-col items-center justify-center h-full gap-4">
+            <div className="text-sm text-slate-400 italic text-center">No items in outline yet. Start speaking requirements!</div>
+            {onAddChildNode && (
+              <button 
+                onClick={() => onAddChildNode("")}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded transition-colors"
+               >
+                 <Plus size={16} /> Add Root Node
+               </button>
+            )}
+          </div>
         ) : (
           renderTree("") // Start with root elements (empty parent_id)
         )}

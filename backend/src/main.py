@@ -12,6 +12,7 @@ import uvicorn
 
 from .config import settings
 from .session_manager import SessionManager
+from .firestore_writer import FirestoreWriter
 
 
 session_manager = SessionManager()
@@ -63,6 +64,18 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
     - {"type": "disconnect"}: Close session
     """
     await websocket.accept()
+    
+    connection_id = str(uuid.uuid4())
+    writer = FirestoreWriter(session_id)
+    
+    if not await writer.try_lock_session(connection_id):
+        await websocket.send_json({
+            "type": "error", 
+            "message": "Session already active"
+        })
+        await websocket.close()
+        return
+
     session = await session_manager.create_session(session_id, websocket)
 
     try:
@@ -110,8 +123,24 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
                         )
                     elif msg_type == "user_edit_outline":
                         await session.handle_user_edit_outline(data.get("node", {}))
+                    elif msg_type == "user_delete_outline":
+                        await session.handle_user_delete_outline(data.get("id", ""))
                     elif msg_type == "user_edit_task":
                         await session.handle_user_edit_task(data.get("task", {}))
+                    elif msg_type == "user_delete_task":
+                        await session.handle_user_delete_task(data.get("id", ""))
+                    elif msg_type == "user_edit_arch":
+                        await session.handle_user_edit_arch(data.get("element", {}))
+                    elif msg_type == "user_delete_arch":
+                        await session.handle_user_delete_arch(data.get("id", ""))
+                    elif msg_type == "user_edit_schedule":
+                        await session.handle_user_edit_schedule(data.get("item", {}))
+                    elif msg_type == "user_delete_schedule":
+                        await session.handle_user_delete_schedule(data.get("id", ""))
+                    elif msg_type == "user_edit_title":
+                        await session.handle_user_edit_title(data.get("title", ""))
+                    elif msg_type == "user_toggle_archive":
+                        await session.handle_user_toggle_archive(data.get("is_archived", False))
 
                 except json.JSONDecodeError:
                     pass
@@ -121,6 +150,7 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
     except Exception as e:
         print(f"[Smith] Session error: {e}")
     finally:
+        await writer.unlock_session(connection_id)
         await session_manager.close_session(session_id)
 
 

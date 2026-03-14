@@ -1,7 +1,8 @@
 "use client";
 
 import { DeviceState } from "@/hooks/useDevices";
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
+import { Menu } from "lucide-react";
 
 interface ControlBarProps {
   isConnected: boolean;
@@ -19,6 +20,8 @@ interface ControlBarProps {
   isSharingScreen?: boolean;
   onUploadFile?: (file: File) => void;
   onOpenSidebar: () => void;
+  sessionTitle: string;
+  onEditTitle: (title: string) => void;
 }
 
 export function ControlBar({
@@ -37,12 +40,47 @@ export function ControlBar({
   isSharingScreen,
   onUploadFile,
   onOpenSidebar,
+  sessionTitle,
+  onEditTitle,
 }: ControlBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [localTitle, setLocalTitle] = useState(sessionTitle);
+
+  // Sync prop changes downstream
+  useEffect(() => {
+    setLocalTitle(sessionTitle);
+  }, [sessionTitle]);
+
+  const handleTitleBlur = () => {
+    if (localTitle.trim() && localTitle !== sessionTitle) {
+      onEditTitle(localTitle);
+    } else {
+      setLocalTitle(sessionTitle); // Reset on empty
+    }
+  };
 
   return (
     <div className="flex items-center gap-3 p-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-      <h1 className="text-lg font-bold mr-4">Smith</h1>
+      <button 
+        onClick={onOpenSidebar}
+        className="p-2 hover:bg-[var(--color-surface-hover)] rounded-md text-[var(--color-text)] transition-colors"
+        title="Show Meeting History"
+        aria-label="Meeting History"
+      >
+        <Menu size={20} />
+      </button>
+      <input 
+        className="text-lg font-bold mr-4 bg-transparent outline-none border-b border-transparent focus:border-[var(--color-border)] hover:border-[var(--color-border)] transition-colors px-1"
+        value={localTitle}
+        onChange={(e) => setLocalTitle(e.target.value)}
+        onBlur={handleTitleBlur}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
+        }}
+        title="Edit session title"
+      />
 
       {!isConnected ? (
         <button

@@ -22,11 +22,21 @@ interface ScheduleItem {
 
 interface PlanProps {
   items: ScheduleItem[];
+  onUpdateScheduleItem?: (id: string, updates: Partial<ScheduleItem>) => void;
+  onDeleteScheduleItem?: (id: string) => void;
+  onAddScheduleItem?: () => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
 
-export default function Plan({ items, isMaximized, onToggleMaximize }: PlanProps) {
+export default function Plan({ 
+  items, 
+  onUpdateScheduleItem,
+  onDeleteScheduleItem,
+  onAddScheduleItem,
+  isMaximized, 
+  onToggleMaximize 
+}: PlanProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
 
@@ -59,12 +69,39 @@ export default function Plan({ items, isMaximized, onToggleMaximize }: PlanProps
     setTasks(newTasks);
   }, [items]);
 
+  const handleDateChange = (task: Task) => {
+    if (onUpdateScheduleItem) {
+      onUpdateScheduleItem(task.id, {
+        start_date: task.start.toISOString(),
+        end_date: task.end.toISOString(),
+      });
+    }
+  };
+
+  const handleProgressChange = (task: Task) => {
+    if (onUpdateScheduleItem) {
+      onUpdateScheduleItem(task.id, {
+        progress: task.progress,
+      });
+    }
+  };
+
   return (
     <div className="h-full w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 overflow-x-auto shadow-sm flex flex-col relative min-w-[500px]">
       <div className="mb-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2 z-10">
-          Plan
-        </h2>
+        <div className="flex items-center gap-3 z-10">
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+            Plan
+          </h2>
+          {onAddScheduleItem && (
+            <button 
+              onClick={onAddScheduleItem}
+              className="px-2 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded transition-colors"
+            >
+              + Add Event
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-2 text-xs mr-2">
             <button 
@@ -117,6 +154,9 @@ export default function Plan({ items, isMaximized, onToggleMaximize }: PlanProps
               columnWidth={viewMode === ViewMode.Month ? 150 : 60}
               barCornerRadius={4}
               handleWidth={8}
+              onDateChange={handleDateChange}
+              onProgressChange={handleProgressChange}
+              onDelete={onDeleteScheduleItem ? (task: Task) => onDeleteScheduleItem(task.id) : undefined}
             />
           </div>
         )}

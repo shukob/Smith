@@ -92,21 +92,89 @@ class FirestoreWriter:
         except Exception as e:
             print(f"[Firestore] Failed to upsert requirement: {e}")
 
-    async def update_summary(self, summary: str, topics: list[str]) -> None:
+    async def update_summary(self, summary: str, topics: list[str], title: str = "") -> None:
         """Update the meeting discussion summary."""
         if not self._doc_ref:
             return
 
         try:
-            await self._doc_ref.update({
+            updates = {
                 "summary": {
                     "text": summary,
                     "topics_discussed": topics,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
-            })
+            }
+            if title:
+                # Get current metadata to preserve status etc, while setting the name if it hasn't been manually set elsewhere
+                doc = await self._doc_ref.get()
+                data = doc.to_dict() or {}
+                metadata = data.get("metadata", {})
+                # We only overwrite the title if it doesn't exist, or if we want the AI to constantly update it.
+                # Let's let the AI update it, but frontend edits would just get overwritten. 
+                # Better: always update it. The frontend manual edit sets it, but the AI might refine it later.
+                metadata["name"] = title
+                updates["metadata"] = metadata
+
+            await self._doc_ref.update(updates)
         except Exception as e:
             print(f"[Firestore] Failed to update summary: {e}")
+
+    async def update_title(self, title: str) -> None:
+        """Manually update the session title from frontend."""
+        if not self._doc_ref:
+            return
+        try:
+            doc = await self._doc_ref.get()
+            metadata = (doc.to_dict() or {}).get("metadata", {})
+            metadata["name"] = title
+            await self._doc_ref.update({"metadata": metadata})
+        except Exception as e:
+            print(f"[Firestore] Failed to update title: {e}")
+
+    @firestore.async_transactional
+    async def _lock_transaction(self, transaction, doc_ref, connection_id: str) -> bool:
+        doc = await doc_ref.get(transaction=transaction)
+        data = doc.to_dict() or {}
+        metadata = data.get("metadata", {})
+        
+        current_lock = metadata.get("locked_by")
+        if current_lock and current_lock != connection_id:
+            # Already locked by someone else
+            # (In a production system you might check a heartbeat timestamp to break stale locks)
+            return False
+            
+        metadata["locked_by"] = connection_id
+        transaction.update(doc_ref, {"metadata": metadata})
+        return True
+
+    async def try_lock_session(self, connection_id: str) -> bool:
+        """Attempt to lock the session for a specific connection. Returns True if successful."""
+        if not self._doc_ref:
+            return False
+        try:
+            db_client = firestore.AsyncClient(project=settings.google_cloud_project)
+            transaction = db_client.transaction()
+            return await self._lock_transaction(transaction, self._doc_ref, connection_id)
+        except Exception as e:
+            print(f"[Firestore] Failed to lock session: {e}")
+            return False
+
+    async def unlock_session(self, connection_id: str) -> None:
+        """Unlock the session if it is currently locked by the given connection_id."""
+        if not self._doc_ref:
+            return
+        try:
+            # We can just do a standard read/write here since releasing a lock you own is safe
+            doc = await self._doc_ref.get()
+            data = doc.to_dict() or {}
+            metadata = data.get("metadata", {})
+            if metadata.get("locked_by") == connection_id:
+                metadata.pop("locked_by", None)
+                await self._doc_ref.update({"metadata": metadata})
+                print(f"[Firestore] Unlocked session {self.session_id}")
+        except Exception as e:
+            print(f"[Firestore] Failed to unlock session: {e}")
 
     async def _upsert_array_item(self, array_field: str, item: dict, id_field: str = "id") -> None:
         """Helper to upsert an item in a document array."""
@@ -139,17 +207,48 @@ class FirestoreWriter:
         except Exception as e:
             print(f"[Firestore] Failed to upsert to {array_field}: {e}")
 
+    async def _remove_array_item(self, array_field: str, item_id: str, id_field: str = "id") -> None:
+        """Helper to remove an item from a document array by ID."""
+        if not self._doc_ref:
+            return
+            
+        try:
+            doc = await self._doc_ref.get()
+            data = doc.to_dict() or {}
+            items = data.get(array_field, [])
+            
+            initial_count = len(items)
+            items = [item for item in items if item.get(id_field) != item_id]
+            
+            if len(items) < initial_count:
+                await self._doc_ref.update({array_field: items})
+                print(f"[Firestore] Removed {item_id} from {array_field}")
+        except Exception as e:
+            print(f"[Firestore] Failed to remove from {array_field}: {e}")
+
     async def upsert_outline_node(self, node: dict) -> None:
         await self._upsert_array_item("outline_nodes", node)
+
+    async def delete_outline_node(self, node_id: str) -> None:
+        await self._remove_array_item("outline_nodes", node_id)
 
     async def upsert_architecture_element(self, element: dict) -> None:
         await self._upsert_array_item("architecture_elements", element)
 
+    async def delete_architecture_element(self, element_id: str) -> None:
+        await self._remove_array_item("architecture_elements", element_id)
+
     async def upsert_task(self, task: dict) -> None:
         await self._upsert_array_item("tasks", task)
 
+    async def delete_task(self, task_id: str) -> None:
+        await self._remove_array_item("tasks", task_id)
+
     async def upsert_schedule_item(self, item: dict) -> None:
         await self._upsert_array_item("schedule_items", item)
+
+    async def delete_schedule_item(self, item_id: str) -> None:
+        await self._remove_array_item("schedule_items", item_id)
 
     async def append_transcript(self, role: str, text: str) -> None:
         """Append a transcript entry."""

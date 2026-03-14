@@ -36,8 +36,11 @@ export function MeetingRoom() {
     isActive: false,
   });
 
+  // Lockout state
+  const [isLockedOut, setIsLockedOut] = useState(false);
+
   // Firestore real-time data
-  const { requirements, summary, outlineNodes, archElements, tasks: focusTasks, scheduleItems } = useFirestore(sessionId);
+  const { requirements, summary, outlineNodes, archElements, tasks: focusTasks, scheduleItems, metadata } = useFirestore(sessionId);
 
   // Device selection
   const devices = useDevices();
@@ -102,6 +105,13 @@ export function MeetingRoom() {
       case "ready":
         console.log("[MeetingRoom] Session ready:", msg.session_id);
         break;
+
+      case "error":
+        console.error("[MeetingRoom] Error from server:", msg.message);
+        if (msg.message === "Session already active") {
+          setIsLockedOut(true);
+        }
+        break;
     }
   }, []);
 
@@ -143,6 +153,7 @@ export function MeetingRoom() {
       actual: null,
       isActive: false,
     });
+    setIsLockedOut(false);
     setIsSpeaking(false);
   }, [isConnected, disconnect]);
 
@@ -160,6 +171,7 @@ export function MeetingRoom() {
       actual: null,
       isActive: false,
     });
+    setIsLockedOut(false);
     setIsSpeaking(false);
   }, [isConnected, disconnect]);
 
@@ -170,6 +182,28 @@ export function MeetingRoom() {
     sendMessage({ type: "user_edit_outline", node: updatedNode });
   }, [outlineNodes, sendMessage]);
 
+  const handleUpdateNodeType = useCallback((id: string, newType: string) => {
+    const node = outlineNodes.find(n => n.id === id);
+    if (!node) return;
+    const updatedNode = { ...node, type: newType };
+    sendMessage({ type: "user_edit_outline", node: updatedNode });
+  }, [outlineNodes, sendMessage]);
+
+  const handleDeleteOutlineNode = useCallback((id: string) => {
+    sendMessage({ type: "user_delete_outline", id });
+  }, [sendMessage]);
+
+  const handleAddChildNode = useCallback((parentId: string) => {
+    const newNode = {
+      id: `node-${Date.now()}`,
+      parent_id: parentId,
+      text: "New Node",
+      type: "note",
+      order: outlineNodes.filter(n => n.parent_id === parentId).length,
+    };
+    sendMessage({ type: "user_edit_outline", node: newNode });
+  }, [outlineNodes, sendMessage]);
+
   const handleEditFocusTask = useCallback((id: string, newTitle: string) => {
     const task = focusTasks.find(t => t.id === id);
     if (!task) return;
@@ -177,8 +211,103 @@ export function MeetingRoom() {
     sendMessage({ type: "user_edit_task", task: updatedTask });
   }, [focusTasks, sendMessage]);
 
+  const handleUpdateFocusTaskProperty = useCallback((id: string, property: string, value: string) => {
+    const task = focusTasks.find(t => t.id === id);
+    if (!task) return;
+    const updatedTask = { ...task, [property]: value };
+    sendMessage({ type: "user_edit_task", task: updatedTask });
+  }, [focusTasks, sendMessage]);
+
+  const handleDeleteFocusTask = useCallback((id: string) => {
+    sendMessage({ type: "user_delete_task", id });
+  }, [sendMessage]);
+
+  const handleAddFocusTask = useCallback((status: string) => {
+    const newTask = {
+      id: `task-${Date.now()}`,
+      title: "New Task",
+      status: status,
+      assignee: "",
+      priority: "medium",
+    };
+    sendMessage({ type: "user_edit_task", task: newTask });
+  }, [sendMessage]);
+
+  const handleUpdateScheduleItem = useCallback((id: string, updates: any) => {
+    const item = scheduleItems.find((i: any) => i.id === id);
+    if (!item) return;
+    const updatedItem = { ...item, ...updates };
+    sendMessage({ type: "user_edit_schedule", item: updatedItem });
+  }, [scheduleItems, sendMessage]);
+
+  const handleDeleteScheduleItem = useCallback((id: string) => {
+    sendMessage({ type: "user_delete_schedule", id });
+  }, [sendMessage]);
+
+  const handleAddScheduleItem = useCallback(() => {
+    const newItem = {
+      id: `schedule-${Date.now()}`,
+      name: "New Milestone",
+      start_date: new Date().toISOString(),
+      end_date: new Date(Date.now() + 86400000).toISOString(), // +1 day
+      progress: 0,
+      dependencies: [],
+    };
+    sendMessage({ type: "user_edit_schedule", item: newItem });
+  }, [sendMessage]);
+
+  const handleUpdateArchElement = useCallback((id: string, updates: any) => {
+    const el = archElements.find((e: any) => e.id === id);
+    if (!el) return;
+    const updatedEl = { ...el, ...updates };
+    sendMessage({ type: "user_edit_arch", element: updatedEl });
+  }, [archElements, sendMessage]);
+
+  const handleDeleteArchElement = useCallback((id: string) => {
+    sendMessage({ type: "user_delete_arch", id });
+  }, [sendMessage]);
+
+  const handleAddArchElement = useCallback((type: string) => {
+    const isConn = type === "edge";
+    const newEl = {
+      id: isConn ? `edge-${Date.now()}` : `node-${Date.now()}`,
+      type: type,
+      label: isConn ? undefined : "New Component",
+      position: isConn ? undefined : { x: 0, y: 0 },
+      source: isConn ? archElements.find(e => e.type !== "edge")?.id || "" : undefined,
+      target: isConn ? "" : undefined,
+    };
+    sendMessage({ type: "user_edit_arch", element: newEl });
+  }, [archElements, sendMessage]);
+
+  const handleEditTitle = useCallback((title: string) => {
+    sendMessage({ type: "user_edit_title", title });
+  }, [sendMessage]);
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {isLockedOut && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md text-center border border-red-200 dark:border-red-900/50">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Session Already Active</h2>
+            <p className="text-slate-600 dark:text-slate-300 mb-6 text-sm">
+              This session is currently being edited in another window or by another user. You cannot connect to the same session concurrently.
+            </p>
+            <button 
+              onClick={handleNewSession}
+              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+            >
+              Start New Session
+            </button>
+          </div>
+        </div>
+      )}
+
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -206,6 +335,8 @@ export function MeetingRoom() {
         isSharingScreen={false}
         onUploadFile={(file) => { console.log("TODO: Upload file", file); }}
         onOpenSidebar={() => setIsSidebarOpen(true)}
+        sessionTitle={metadata?.name || `Meeting ${sessionId.split("-").slice(-2).join("-")}`}
+        onEditTitle={handleEditTitle}
       />
 
       {/* Main content: 3-column layout */}
@@ -247,20 +378,50 @@ export function MeetingRoom() {
             <>
               {/* Top Row */}
               <div className="flex-1 flex gap-4 min-h-[300px]">
+                 <div className="flex-1 overflow-hidden min-h-[300px] h-full">
+                <Outline
+                  nodes={outlineNodes}
+                  onEditNode={handleEditOutlineNode}
+                  onUpdateNodeType={handleUpdateNodeType}
+                  onDeleteNode={handleDeleteOutlineNode}
+                  onAddChildNode={handleAddChildNode}
+                  isMaximized={maximizedPane === "outline"}
+                  onToggleMaximize={() => setMaximizedPane("outline")}
+                />
+              </div>
                  <div className="flex-1 overflow-hidden">
-                   <Outline nodes={outlineNodes} onEditNode={handleEditOutlineNode} isMaximized={false} onToggleMaximize={() => setMaximizedPane("outline")} />
-                 </div>
-                 <div className="flex-1 overflow-hidden">
-                   <Graffle elements={archElements} isMaximized={false} onToggleMaximize={() => setMaximizedPane("graffle")} />
+                   <Graffle
+                     elements={archElements}
+                     onUpdateElement={handleUpdateArchElement}
+                     onDeleteElement={handleDeleteArchElement}
+                     onAddElement={handleAddArchElement}
+                     isMaximized={maximizedPane === "graffle"}
+                     onToggleMaximize={() => setMaximizedPane("graffle")}
+                   />
                  </div>
               </div>
               {/* Bottom Row */}
               <div className="flex-1 flex gap-4 min-h-[300px]">
                  <div className="flex-1 overflow-hidden">
-                   <Focus initialTasks={focusTasks} onEditTask={handleEditFocusTask} isMaximized={false} onToggleMaximize={() => setMaximizedPane("focus")} />
+                    <Focus 
+                      initialTasks={focusTasks} 
+                      onEditTask={handleEditFocusTask}
+                      onUpdateTaskProperty={handleUpdateFocusTaskProperty}
+                      onDeleteTask={handleDeleteFocusTask}
+                      onAddTask={handleAddFocusTask}
+                      isMaximized={maximizedPane === "focus"}
+                      onToggleMaximize={() => setMaximizedPane("focus")}
+                    />
                  </div>
                  <div className="flex-1 overflow-hidden">
-                   <Plan items={scheduleItems} isMaximized={false} onToggleMaximize={() => setMaximizedPane("plan")} />
+                   <Plan 
+                     items={scheduleItems} 
+                     onUpdateScheduleItem={handleUpdateScheduleItem}
+                     onDeleteScheduleItem={handleDeleteScheduleItem}
+                     onAddScheduleItem={handleAddScheduleItem}
+                     isMaximized={maximizedPane === "plan"} 
+                     onToggleMaximize={() => setMaximizedPane("plan")} 
+                   />
                  </div>
               </div>
             </>

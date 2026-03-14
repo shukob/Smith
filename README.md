@@ -88,41 +88,30 @@ Smith/
 - Gemini API key (from [Google AI Studio](https://aistudio.google.com/))
 - Simli API key and Face ID (from [Simli](https://simli.com/))
 
-### 1. Infrastructure (Pulumi)
+### 1. Configuration
+
+Create a `.env` file in the project root:
 
 ```bash
-cd infra
-npm install
-pulumi stack init dev
-pulumi config set gcp:project YOUR_PROJECT_ID
-pulumi config set gcp:region us-central1
-pulumi up
+cp .env.example .env
 ```
 
-This creates: Artifact Registry, Cloud Run service, Firestore database, Secret Manager secrets, IAM bindings.
+Edit the `.env` file with your configuration:
+- `GCP_PROJECT`: Your Google Cloud Project ID
+- `GCP_REGION`: Target region (default: us-central1)
+- `GEMINI_KEY`: Your Gemini API Key
+- `SIMLI_KEY`: Your Simli API Key
+- `SIMLI_FACE_ID`: Your Simli Face ID
 
-### 2. Set Secrets
+### 2. Deploy Infrastructure & Backend
+
+Run the automated deployment script from the project root. This will automatically set up the GCP infrastructure via Pulumi, store your secrets, and deploy the Cloud Run backend service.
 
 ```bash
-echo -n "YOUR_GEMINI_KEY" | gcloud secrets versions add smith-google-api-key --data-file=-
-echo -n "YOUR_SIMLI_KEY" | gcloud secrets versions add smith-simli-api-key --data-file=-
-echo -n "YOUR_FACE_ID" | gcloud secrets versions add smith-simli-face-id --data-file=-
+./scripts/deploy.sh
 ```
 
-### 3. Deploy Backend
-
-```bash
-# Authenticate Docker
-gcloud auth configure-docker us-central1-docker.pkg.dev
-
-# Build and push
-docker build -t us-central1-docker.pkg.dev/YOUR_PROJECT/smith/backend ./backend
-docker push us-central1-docker.pkg.dev/YOUR_PROJECT/smith/backend
-
-# Cloud Run will auto-pick up the new image
-```
-
-### 4. Deploy Frontend
+### 3. Deploy Frontend
 
 ```bash
 cd frontend
@@ -130,7 +119,7 @@ npm install
 
 # Set environment variables
 cp .env.example .env.local
-# Edit .env.local with your Firebase config and backend URL
+# Edit .env.local and set NEXT_PUBLIC_BACKEND_URL to your newly deployed Cloud Run URL
 
 # Deploy via Firebase App Hosting
 firebase init apphosting

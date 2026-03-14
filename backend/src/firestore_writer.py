@@ -49,6 +49,10 @@ class FirestoreWriter:
                 "topics_discussed": [],
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             },
+            "outline_nodes": [],
+            "architecture_elements": [],
+            "tasks": [],
+            "schedule_items": [],
             "transcript": [],
             "divergence_log": [],
         })
@@ -103,6 +107,49 @@ class FirestoreWriter:
             })
         except Exception as e:
             print(f"[Firestore] Failed to update summary: {e}")
+
+    async def _upsert_array_item(self, array_field: str, item: dict, id_field: str = "id") -> None:
+        """Helper to upsert an item in a document array."""
+        if not self._doc_ref:
+            return
+            
+        try:
+            doc = await self._doc_ref.get()
+            data = doc.to_dict() or {}
+            items = data.get(array_field, [])
+            
+            item_id = item.get(id_field, "")
+            updated = False
+            for i, existing_item in enumerate(items):
+                if existing_item.get(id_field) == item_id:
+                    items[i] = {
+                        **item,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    updated = True
+                    break
+                    
+            if not updated:
+                items.append({
+                    **item,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                
+            await self._doc_ref.update({array_field: items})
+        except Exception as e:
+            print(f"[Firestore] Failed to upsert to {array_field}: {e}")
+
+    async def upsert_outline_node(self, node: dict) -> None:
+        await self._upsert_array_item("outline_nodes", node)
+
+    async def upsert_architecture_element(self, element: dict) -> None:
+        await self._upsert_array_item("architecture_elements", element)
+
+    async def upsert_task(self, task: dict) -> None:
+        await self._upsert_array_item("tasks", task)
+
+    async def upsert_schedule_item(self, item: dict) -> None:
+        await self._upsert_array_item("schedule_items", item)
 
     async def append_transcript(self, role: str, text: str) -> None:
         """Append a transcript entry."""

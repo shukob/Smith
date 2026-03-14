@@ -1,0 +1,3 @@
+config:
+  gcp:project: cogent-silicon-489609-d0
+  gcp:region: asia-northeast1

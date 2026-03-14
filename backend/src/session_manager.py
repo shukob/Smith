@@ -9,6 +9,7 @@ from .simli_client import SimliAvatarClient
 from .speculative_engine import SpeculativeEngine
 from .audio_processor import AudioProcessor
 from .firestore_writer import FirestoreWriter
+from .adk_agent import AdkBackgroundAgent
 from .config import settings
 
 
@@ -59,6 +60,11 @@ class MeetingSession:
             on_turn_complete=self._handle_turn_complete,
         )
         await self.gemini_client.connect()
+
+        # Initialize Background ADK Agent
+        self.adk_agent = AdkBackgroundAgent(session_id=self.session_id, live_client=self.gemini_client)
+        await self.adk_agent.initialize()
+        self.adk_agent.start()
 
         # Initialize Simli avatar (optional)
         if settings.enable_simli and settings.simli_api_key and settings.simli_face_id:
@@ -117,6 +123,10 @@ class MeetingSession:
         # Write to Firestore
         await self.firestore_writer.append_transcript(role, text)
 
+        # Route to ADK Agent
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript(role, text)
+
     async def _handle_input_transcript(self, text: str) -> None:
         """Handle user's speech transcription from Gemini.
 
@@ -160,6 +170,10 @@ class MeetingSession:
 
         # Update context
         self.speculative_engine.update_context(f"user: {text}")
+
+        # Route to ADK Agent
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("user", text)
 
     async def _handle_function_call(
         self, call_id: str, name: str, args: dict
@@ -262,6 +276,9 @@ class MeetingSession:
 
         if self.gemini_client:
             await self.gemini_client.close()
+
+        if hasattr(self, 'adk_agent'):
+            await self.adk_agent.stop()
 
         if self.simli_client:
             await self.simli_client.close()

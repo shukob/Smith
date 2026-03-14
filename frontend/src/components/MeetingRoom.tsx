@@ -3,10 +3,12 @@
 import { useState, useCallback, useMemo } from "react";
 import { ControlBar } from "./ControlBar";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
-import { RequirementsList } from "./RequirementsList";
-import { SummaryPanel } from "./SummaryPanel";
-import { DivergenceIndicator } from "./DivergenceIndicator";
 import { AvatarPanel } from "./AvatarPanel";
+import OmniOutline from "./OmniOutline";
+import OmniGraffle from "./OmniGraffle";
+import OmniFocus from "./OmniFocus";
+import OmniPlan from "./OmniPlan";
+import { DivergenceIndicator } from "./DivergenceIndicator";
 import { useAudioStream, type AudioStreamMessage } from "@/hooks/useAudioStream";
 import { useFirestore } from "@/hooks/useFirestore";
 
@@ -133,14 +135,26 @@ export function MeetingRoom() {
           </div>
         </div>
 
-        {/* Center: Requirements */}
-        <div className="flex-1 border-r border-[var(--color-border)]">
-          <RequirementsList requirements={requirements} />
-        </div>
-
-        {/* Right: Summary */}
-        <div className="w-80">
-          <SummaryPanel summary={summary} />
+        {/* Main content: Omni 4-Pane Dashboard */}
+        <div className="flex-1 flex flex-col p-4 gap-4 bg-slate-50 dark:bg-slate-950 overflow-hidden">
+          {/* Top Row */}
+          <div className="flex-1 flex gap-4 min-h-[300px]">
+             <div className="flex-1">
+               <OmniOutline />
+             </div>
+             <div className="flex-1">
+               <OmniGraffle />
+             </div>
+          </div>
+          {/* Bottom Row */}
+          <div className="flex-1 flex gap-4 min-h-[300px]">
+             <div className="flex-1">
+               <OmniFocus />
+             </div>
+             <div className="flex-1 overflow-hidden">
+               <OmniPlan />
+             </div>
+          </div>
         </div>
       </div>
 

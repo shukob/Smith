@@ -16,7 +16,6 @@ const apis = [
   "artifactregistry.googleapis.com",
   "cloudbuild.googleapis.com",
   "firebase.googleapis.com",
-  "apphosting.googleapis.com",
 ];
 
 const enabledApis = apis.map(
@@ -138,7 +137,9 @@ const backendService = new gcp.cloudrunv2.Service(
             },
             cpuIdle: false, // Keep CPU allocated for WebSocket
           },
-          ports: [{ containerPort: 8080 }],
+          ports: {
+            containerPort: 8080,
+          },
           envs: [
             {
               name: "GCP_PROJECT_ID",
@@ -208,7 +209,7 @@ new gcp.cloudrunv2.ServiceIamMember("smith-backend-public", {
 // ============================================================
 // Outputs
 // ============================================================
-export const backendUrl = backendService.uris;
+export const backendUrl = backendService.uri;
 export const artifactRegistryUrl = pulumi.interpolate`${region}-docker.pkg.dev/${project}/smith`;
 export const firestoreDatabase = firestoreDb.name;
 export const serviceAccountEmail = serviceAccount.email;

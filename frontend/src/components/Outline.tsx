@@ -48,6 +48,8 @@ function OutlineNodeItem({
     <input
       type="text"
       value={text}
+      autoFocus
+      onFocus={(e) => e.target.select()}
       onChange={(e) => setText(e.target.value)}
       onBlur={handleCommit}
       onKeyDown={(e) => {
@@ -101,7 +103,7 @@ export default function Outline({
     if (children.length === 0) return null;
 
     return (
-      <ul className={`pl-${depth > 0 ? 4 : 0}`}>
+      <ul style={{ paddingLeft: `${depth * 1}rem` }}>
         {children.map((node) => {
           const hasChildren = nodes.some((n) => n.parent_id === node.id);
           const isExpanded = expanded.has(node.id);

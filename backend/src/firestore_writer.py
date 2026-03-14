@@ -132,30 +132,29 @@ class FirestoreWriter:
         except Exception as e:
             print(f"[Firestore] Failed to update title: {e}")
 
-    @firestore.async_transactional
-    async def _lock_transaction(self, transaction, doc_ref, connection_id: str, force: bool = False) -> bool:
-        doc = await doc_ref.get(transaction=transaction)
-        data = doc.to_dict() or {}
-        metadata = data.get("metadata", {})
-        
-        current_lock = metadata.get("locked_by")
-        if current_lock and current_lock != connection_id and not force:
-            # Already locked by someone else
-            # (In a production system you might check a heartbeat timestamp to break stale locks)
-            return False
-            
-        metadata["locked_by"] = connection_id
-        transaction.update(doc_ref, {"metadata": metadata})
-        return True
-
     async def try_lock_session(self, connection_id: str, force: bool = False) -> bool:
         """Attempt to lock the session for a specific connection. Returns True if successful."""
         if not self._doc_ref:
             return False
+
+        @firestore.async_transactional
+        async def _lock_transaction(transaction, doc_ref, conn_id, force_lock):
+            doc = await doc_ref.get(transaction=transaction)
+            data = doc.to_dict() or {}
+            metadata = data.get("metadata", {})
+            
+            current_lock = metadata.get("locked_by")
+            if current_lock and current_lock != conn_id and not force_lock:
+                # Already locked by someone else
+                return False
+                
+            metadata["locked_by"] = conn_id
+            transaction.set(doc_ref, {"metadata": metadata}, merge=True)
+            return True
+
         try:
-            db_client = firestore.AsyncClient(project=settings.google_cloud_project)
-            transaction = db_client.transaction()
-            return await self._lock_transaction(transaction, self._doc_ref, connection_id, force)
+            transaction = self._db.transaction()
+            return await _lock_transaction(transaction, self._doc_ref, connection_id, force)
         except Exception as e:
             print(f"[Firestore] Failed to lock session: {e}")
             return False

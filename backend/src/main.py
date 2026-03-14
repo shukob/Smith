@@ -65,8 +65,11 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
     """
     await websocket.accept()
     
+    print(f"[WebSocket] Connected session_id={session_id}, force={force}")
+    
     connection_id = str(uuid.uuid4())
     writer = FirestoreWriter(session_id)
+    await writer.initialize()
     
     if not await writer.try_lock_session(connection_id, force=force):
         await websocket.send_json({

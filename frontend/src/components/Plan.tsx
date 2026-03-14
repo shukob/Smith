@@ -146,7 +146,7 @@ export default function Plan({
              </div>
            </div>
         ) : (
-          <div className="rounded-lg border border-slate-200 shadow-sm overflow-hidden bg-white">
+          <div className="rounded-lg border border-slate-200 shadow-sm overflow-hidden bg-white text-slate-800">
             <GanttWrapper
               tasks={tasks}
               viewMode={viewMode}

@@ -52,6 +52,7 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
             data: { label: element.label || "System Node" },
             style: { 
               background: '#fff', 
+              color: '#1e293b',
               border: '1px solid #e2e8f0',
               borderRadius: '8px',
               padding: '10px 20px',

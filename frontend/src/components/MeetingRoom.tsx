@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { ControlBar } from "./ControlBar";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
 import { AvatarPanel } from "./AvatarPanel";
@@ -138,14 +138,25 @@ export function MeetingRoom() {
     setForceConnect(true);
   }, []);
 
+  const hasAttemptedConnectRef = useRef<Record<string, boolean>>({});
+
   useEffect(() => {
-    if (forceConnect) {
+    if (!sessionId) return;
+    
+    // Auto-connect to the control socket so the 4 panes are immediately interactable, but only try once
+    if (!isConnected && !isLockedOut && !hasAttemptedConnectRef.current[sessionId]) {
+      hasAttemptedConnectRef.current[sessionId] = true;
       connect();
-      // Reset force state quickly so normal reconnects aren't forced
+    }
+    
+    if (forceConnect) {
+      // If forced, reset the attempt flag and connect with the force wsUrl
+      hasAttemptedConnectRef.current[sessionId] = true;
+      connect();
       const timer = setTimeout(() => setForceConnect(false), 2000);
       return () => clearTimeout(timer);
     }
-  }, [forceConnect, connect]);
+  }, [forceConnect, connect, isConnected, isLockedOut, sessionId]);
 
   const handleToggleSpeculative = useCallback(
     (enabled: boolean) => {
@@ -379,22 +390,52 @@ export function MeetingRoom() {
         <div className="flex-1 flex flex-col p-4 gap-4 bg-slate-50 dark:bg-slate-950 overflow-hidden">
           {maximizedPane === "outline" && (
             <div className="flex-1 overflow-hidden">
-              <Outline nodes={outlineNodes} onEditNode={handleEditOutlineNode} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+              <Outline
+                nodes={outlineNodes}
+                onEditNode={handleEditOutlineNode}
+                onUpdateNodeType={handleUpdateNodeType}
+                onDeleteNode={handleDeleteOutlineNode}
+                onAddChildNode={handleAddChildNode}
+                isMaximized={true}
+                onToggleMaximize={() => setMaximizedPane(null)}
+              />
             </div>
           )}
           {maximizedPane === "graffle" && (
             <div className="flex-1 overflow-hidden">
-              <Graffle elements={archElements} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+              <Graffle
+                elements={archElements}
+                onUpdateElement={handleUpdateArchElement}
+                onDeleteElement={handleDeleteArchElement}
+                onAddElement={handleAddArchElement}
+                isMaximized={true}
+                onToggleMaximize={() => setMaximizedPane(null)}
+              />
             </div>
           )}
           {maximizedPane === "focus" && (
             <div className="flex-1 overflow-hidden">
-              <Focus initialTasks={focusTasks} onEditTask={handleEditFocusTask} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+              <Focus
+                initialTasks={focusTasks}
+                onEditTask={handleEditFocusTask}
+                onUpdateTaskProperty={handleUpdateFocusTaskProperty}
+                onDeleteTask={handleDeleteFocusTask}
+                onAddTask={handleAddFocusTask}
+                isMaximized={true}
+                onToggleMaximize={() => setMaximizedPane(null)}
+              />
             </div>
           )}
           {maximizedPane === "plan" && (
             <div className="flex-1 overflow-hidden">
-              <Plan items={scheduleItems} isMaximized={true} onToggleMaximize={() => setMaximizedPane(null)} />
+              <Plan
+                items={scheduleItems}
+                onUpdateScheduleItem={handleUpdateScheduleItem}
+                onDeleteScheduleItem={handleDeleteScheduleItem}
+                onAddScheduleItem={handleAddScheduleItem}
+                isMaximized={true}
+                onToggleMaximize={() => setMaximizedPane(null)}
+              />
             </div>
           )}
 

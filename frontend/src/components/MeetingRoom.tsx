@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { ControlBar } from "./ControlBar";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
 import { AvatarPanel } from "./AvatarPanel";
@@ -38,6 +38,7 @@ export function MeetingRoom() {
 
   // Lockout state
   const [isLockedOut, setIsLockedOut] = useState(false);
+  const [forceConnect, setForceConnect] = useState(false);
 
   // Firestore real-time data
   const { requirements, summary, outlineNodes, archElements, tasks: focusTasks, scheduleItems, metadata } = useFirestore(sessionId);
@@ -115,7 +116,7 @@ export function MeetingRoom() {
     }
   }, []);
 
-  const wsUrl = useMemo(() => `${WS_URL}/${sessionId}`, [sessionId]);
+  const wsUrl = useMemo(() => `${WS_URL}/${sessionId}${forceConnect ? "?force=true" : ""}`, [sessionId, forceConnect]);
 
   const {
     isConnected,
@@ -131,6 +132,20 @@ export function MeetingRoom() {
     speakerDeviceId: devices.selectedSpeaker,
     onMessage: handleMessage,
   });
+
+  const handleForceJoin = useCallback(() => {
+    setIsLockedOut(false);
+    setForceConnect(true);
+  }, []);
+
+  useEffect(() => {
+    if (forceConnect) {
+      connect();
+      // Reset force state quickly so normal reconnects aren't forced
+      const timer = setTimeout(() => setForceConnect(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [forceConnect, connect]);
 
   const handleToggleSpeculative = useCallback(
     (enabled: boolean) => {
@@ -154,6 +169,7 @@ export function MeetingRoom() {
       isActive: false,
     });
     setIsLockedOut(false);
+    setForceConnect(false);
     setIsSpeaking(false);
   }, [isConnected, disconnect]);
 
@@ -298,12 +314,20 @@ export function MeetingRoom() {
             <p className="text-slate-600 dark:text-slate-300 mb-6 text-sm">
               This session is currently being edited in another window or by another user. You cannot connect to the same session concurrently.
             </p>
-            <button 
-              onClick={handleNewSession}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Start New Session
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button 
+                onClick={handleForceJoin}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors sm:order-1"
+              >
+                Force Takeover
+              </button>
+              <button 
+                onClick={handleNewSession}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors sm:order-2"
+              >
+                Start New Session
+              </button>
+            </div>
           </div>
         </div>
       )}

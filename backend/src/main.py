@@ -49,7 +49,7 @@ async def health():
 
 
 @app.websocket("/ws/meeting/{session_id}")
-async def meeting_websocket(websocket: WebSocket, session_id: str):
+async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False):
     """WebSocket endpoint for a meeting session.
 
     Protocol:
@@ -68,7 +68,7 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
     connection_id = str(uuid.uuid4())
     writer = FirestoreWriter(session_id)
     
-    if not await writer.try_lock_session(connection_id):
+    if not await writer.try_lock_session(connection_id, force=force):
         await websocket.send_json({
             "type": "error", 
             "message": "Session already active"

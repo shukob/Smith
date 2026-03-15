@@ -16,16 +16,19 @@ interface FocusProps {
   onUpdateTaskProperty?: (id: string, property: keyof TaskNode, value: string) => void;
   onDeleteTask?: (id: string) => void;
   onAddTask?: (status: TaskNode["status"]) => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
 
 function EditableTaskTitle({
   task,
-  onEdit
+  onEdit,
+  onSetFocus
 }: {
   task: TaskNode;
   onEdit?: (id: string, newTitle: string) => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
 }) {
   const [title, setTitle] = useState(task.title);
 
@@ -43,8 +46,12 @@ function EditableTaskTitle({
     <input
       type="text"
       value={title}
+      onFocus={() => onSetFocus?.(task.id, "editing_text")}
       onChange={(e) => setTitle(e.target.value)}
-      onBlur={handleCommit}
+      onBlur={(e) => {
+        handleCommit();
+        onSetFocus?.(null, null);
+      }}
       onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
       className="text-sm font-medium text-slate-800 dark:text-slate-200 bg-transparent border-none focus:outline-none focus:bg-slate-50 dark:focus:bg-slate-700 rounded w-full mb-2 truncate"
     />
@@ -60,6 +67,7 @@ export default function Focus({
   onUpdateTaskProperty,
   onDeleteTask,
   onAddTask,
+  onSetFocus,
   isMaximized, 
   onToggleMaximize 
 }: FocusProps) {
@@ -232,7 +240,7 @@ export default function Focus({
                                   )}
                                   
                                   <div className="pr-6">
-                                    <EditableTaskTitle task={task} onEdit={onEditTask} />
+                                    <EditableTaskTitle task={task} onEdit={onEditTask} onSetFocus={onSetFocus} />
                                   </div>
                                   
                                   <div className="flex items-center justify-between mt-3 flex-wrap gap-2">

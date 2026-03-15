@@ -31,12 +31,15 @@ export function useDevices() {
       const microphones = enumeratedDevices.filter(d => d.kind === "audioinput");
       const speakers = enumeratedDevices.filter(d => d.kind === "audiooutput");
 
+      const defaultMic = microphones.find(d => d.deviceId === 'default' || d.label.toLowerCase().includes('default')) || microphones[0];
+      const defaultSpeaker = speakers.find(d => d.deviceId === 'default' || d.label.toLowerCase().includes('default')) || speakers[0];
+
       setDevices(prev => ({
         ...prev,
         microphones,
         speakers,
-        selectedMic: prev.selectedMic === "default" && microphones.length > 0 ? microphones[0].deviceId : prev.selectedMic,
-        selectedSpeaker: prev.selectedSpeaker === "default" && speakers.length > 0 ? speakers[0].deviceId : prev.selectedSpeaker
+        selectedMic: prev.selectedMic === "default" && defaultMic ? defaultMic.deviceId : prev.selectedMic,
+        selectedSpeaker: prev.selectedSpeaker === "default" && defaultSpeaker ? defaultSpeaker.deviceId : prev.selectedSpeaker
       }));
     } catch (err) {
       console.error("[useDevices] Failed to enumerate devices", err);

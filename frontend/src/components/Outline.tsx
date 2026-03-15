@@ -18,6 +18,7 @@ interface OutlineProps {
   onDeleteNode?: (id: string) => void;
   onAddChildNode?: (parentId: string) => void;
   onUpdateNodeParent?: (id: string, newParentId: string) => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
@@ -28,7 +29,8 @@ function OutlineNodeItem({
   onAddChild,
   onAddSibling,
   onIndent,
-  onOutdent
+  onOutdent,
+  onSetFocus
 }: { 
   node: OutlineNode; 
   onEdit?: (id: string, newText: string) => void;
@@ -36,6 +38,7 @@ function OutlineNodeItem({
   onAddSibling?: (id: string) => void;
   onIndent?: () => void;
   onOutdent?: () => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
 }) {
   const [text, setText] = useState(node.text);
 
@@ -54,9 +57,15 @@ function OutlineNodeItem({
       type="text"
       value={text}
       autoFocus
-      onFocus={(e) => e.target.select()}
+      onFocus={(e) => {
+        e.target.select();
+        if (onSetFocus) onSetFocus(node.id, "editing_text");
+      }}
       onChange={(e) => setText(e.target.value)}
-      onBlur={handleCommit}
+      onBlur={(e) => {
+        handleCommit();
+        if (onSetFocus) onSetFocus(null, null);
+      }}
       onKeyDown={(e) => {
         if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter") {
@@ -87,6 +96,7 @@ export default function Outline({
   onDeleteNode,
   onAddChildNode,
   onUpdateNodeParent,
+  onSetFocus,
   isMaximized, 
   onToggleMaximize 
 }: OutlineProps) {
@@ -160,6 +170,7 @@ export default function Outline({
                         }
                       }
                     }}
+                    onSetFocus={onSetFocus}
                   />
                 </div>
 

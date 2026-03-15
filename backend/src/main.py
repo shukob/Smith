@@ -140,6 +140,8 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
                         await session.handle_user_edit_schedule(data.get("item", {}))
                     elif msg_type == "user_delete_schedule":
                         await session.handle_user_delete_schedule(data.get("id", ""))
+                    elif msg_type == "user_set_focus":
+                        await session.handle_user_set_focus(data.get("focus", {}))
                     elif msg_type == "user_edit_title":
                         await session.handle_user_edit_title(data.get("title", ""))
                     elif msg_type == "user_toggle_archive":

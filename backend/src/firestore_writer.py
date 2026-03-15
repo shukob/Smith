@@ -175,6 +175,16 @@ class FirestoreWriter:
         except Exception as e:
             print(f"[Firestore] Failed to unlock session: {e}")
 
+    async def set_user_focus(self, focus_data: dict) -> None:
+        """Store the user's current edit focus in the session metadata."""
+        if not self._doc_ref:
+            return
+        try:
+            focus_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await self._doc_ref.update({"user_focus": focus_data})
+        except Exception as e:
+            print(f"[Firestore] Error updating user focus: {e}")
+
     async def _upsert_array_item(self, array_field: str, item: dict, id_field: str = "id") -> None:
         """Helper to upsert an item in a document array."""
         if not self._doc_ref:

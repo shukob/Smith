@@ -245,6 +245,13 @@ export function MeetingRoom() {
     sendMessage({ type: "user_edit_outline", node: updatedNode });
   }, [outlineNodes, sendMessage]);
 
+  const handleSetFocus = useCallback((pane: string, elementId: string | null, action: string | null) => {
+    sendMessage({ 
+      type: "user_set_focus", 
+      focus: { pane, elementId, action } 
+    });
+  }, [sendMessage]);
+
   const handleDeleteOutlineNode = useCallback((id: string) => {
     sendMessage({ type: "user_delete_outline", id });
   }, [sendMessage]);
@@ -323,15 +330,17 @@ export function MeetingRoom() {
     sendMessage({ type: "user_delete_arch", id });
   }, [sendMessage]);
 
-  const handleAddArchElement = useCallback((type: string) => {
+  const handleAddArchElement = useCallback((type: string, shape?: string) => {
     const isConn = type === "edge";
+    const nodes = archElements.filter(e => e.type !== "edge");
     const newEl = {
       id: isConn ? `edge-${Date.now()}` : `node-${Date.now()}`,
       type: type,
+      shape: type === "node" ? (shape || "rectangle") : undefined,
       label: isConn ? undefined : "New Component",
       position: isConn ? undefined : { x: 0, y: 0 },
-      source: isConn ? archElements.find(e => e.type !== "edge")?.id || "" : undefined,
-      target: isConn ? "" : undefined,
+      source: isConn ? (nodes[0]?.id || "") : undefined,
+      target: isConn ? (nodes[1]?.id || nodes[0]?.id || "") : undefined,
     };
     sendMessage({ type: "user_edit_arch", element: newEl });
   }, [archElements, sendMessage]);
@@ -426,6 +435,7 @@ export function MeetingRoom() {
                 onDeleteNode={handleDeleteOutlineNode}
                 onAddChildNode={handleAddChildNode}
                 onUpdateNodeParent={handleUpdateNodeParent}
+                onSetFocus={(elementId, action) => handleSetFocus("outline", elementId, action)}
                 isMaximized={true}
                 onToggleMaximize={() => setMaximizedPane(null)}
               />
@@ -438,6 +448,7 @@ export function MeetingRoom() {
                 onUpdateElement={handleUpdateArchElement}
                 onDeleteElement={handleDeleteArchElement}
                 onAddElement={handleAddArchElement}
+                onSetFocus={(elementId, action) => handleSetFocus("architecture", elementId, action)}
                 isMaximized={true}
                 onToggleMaximize={() => setMaximizedPane(null)}
               />
@@ -451,6 +462,7 @@ export function MeetingRoom() {
                 onUpdateTaskProperty={handleUpdateFocusTaskProperty}
                 onDeleteTask={handleDeleteFocusTask}
                 onAddTask={handleAddFocusTask}
+                onSetFocus={(elementId, action) => handleSetFocus("focus", elementId, action)}
                 isMaximized={true}
                 onToggleMaximize={() => setMaximizedPane(null)}
               />
@@ -463,6 +475,7 @@ export function MeetingRoom() {
                 onUpdateScheduleItem={handleUpdateScheduleItem}
                 onDeleteScheduleItem={handleDeleteScheduleItem}
                 onAddScheduleItem={handleAddScheduleItem}
+                onSetFocus={(elementId, action) => handleSetFocus("schedule", elementId, action)}
                 isMaximized={true}
                 onToggleMaximize={() => setMaximizedPane(null)}
               />
@@ -481,6 +494,7 @@ export function MeetingRoom() {
                   onDeleteNode={handleDeleteOutlineNode}
                   onAddChildNode={handleAddChildNode}
                   onUpdateNodeParent={handleUpdateNodeParent}
+                  onSetFocus={(elementId, action) => handleSetFocus("outline", elementId, action)}
                   isMaximized={maximizedPane === "outline"}
                   onToggleMaximize={() => setMaximizedPane("outline")}
                 />
@@ -491,6 +505,7 @@ export function MeetingRoom() {
                      onUpdateElement={handleUpdateArchElement}
                      onDeleteElement={handleDeleteArchElement}
                      onAddElement={handleAddArchElement}
+                     onSetFocus={(elementId, action) => handleSetFocus("architecture", elementId, action)}
                      isMaximized={maximizedPane === "graffle"}
                      onToggleMaximize={() => setMaximizedPane("graffle")}
                    />
@@ -505,6 +520,7 @@ export function MeetingRoom() {
                       onUpdateTaskProperty={handleUpdateFocusTaskProperty}
                       onDeleteTask={handleDeleteFocusTask}
                       onAddTask={handleAddFocusTask}
+                      onSetFocus={(elementId, action) => handleSetFocus("focus", elementId, action)}
                       isMaximized={maximizedPane === "focus"}
                       onToggleMaximize={() => setMaximizedPane("focus")}
                     />
@@ -531,8 +547,28 @@ export function MeetingRoom() {
         action={divergence.action}
         predicted={divergence.predicted}
         actual={divergence.actual}
-        isActive={divergence.isActive}
+        isActive={divergence.isActive} 
       />
+
+      {/* Screen Share Preview (Picture in Picture) */}
+      {isSharingScreen && (
+        <div className="absolute bottom-20 right-4 w-64 aspect-video bg-black rounded-lg shadow-xl overflow-hidden border-2 border-slate-700 z-40 group">
+          <video
+            autoPlay
+            playsInline
+            muted
+            ref={(videoNode) => {
+              if (videoNode && streamRef.current) {
+                videoNode.srcObject = streamRef.current;
+              }
+            }}
+            className="w-full h-full object-contain"
+          />
+          <div className="absolute top-2 left-2 px-2 py-1 bg-black/60 text-white text-[10px] font-medium rounded backdrop-blur-sm pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+            Sharing Screen
+          </div>
+        </div>
+      )}
     </div>
   );
 }

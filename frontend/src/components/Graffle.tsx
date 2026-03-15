@@ -11,8 +11,10 @@ import {
   Node,
   Edge,
   ConnectionMode,
+  Handle,
+  Position,
 } from "@xyflow/react";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2, Database, Square, Circle, Triangle, AppWindow } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
 export interface ArchitectureElement {
@@ -21,6 +23,7 @@ export interface ArchitectureElement {
   label?: string;
   source?: string;
   target?: string;
+  shape?: "rectangle" | "rounded" | "circle" | "diamond" | "database";
   position?: { x: number; y: number };
 }
 
@@ -28,10 +31,134 @@ interface GraffleProps {
   elements: ArchitectureElement[];
   onUpdateElement?: (id: string, updates: Partial<ArchitectureElement>) => void;
   onDeleteElement?: (id: string) => void;
-  onAddElement?: (type: ArchitectureElement["type"]) => void;
+  onAddElement?: (type: ArchitectureElement["type"], shape?: ArchitectureElement["shape"]) => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
+
+const ShapeNode = ({ data, selected }: any) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(data.label);
+
+  useEffect(() => {
+    setEditValue(data.label);
+  }, [data.label]);
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
+  const handleBlur = () => {
+    setIsEditing(false);
+    if (editValue !== data.label && data.onUpdateElement && data.id) {
+      data.onUpdateElement(data.id, { label: editValue });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  const shape = data.shape || "rectangle";
+  const isSelectedStyle = selected ? "ring-2 ring-indigo-500" : "";
+  const textColor = "text-slate-700 dark:text-slate-200";
+  const bgColor = "bg-white dark:bg-slate-800";
+  const borderColor = "border border-slate-300 dark:border-slate-600";
+  
+  if (shape === "diamond") {
+    return (
+      <div className={`relative w-16 h-16 pointer-events-auto`} onDoubleClick={handleDoubleClick}>
+         <div className={`absolute inset-0 flex items-center justify-center rotate-45 ${bgColor} ${borderColor} shadow-sm rounded-sm ${isSelectedStyle}`} style={{ borderStyle: 'solid', borderWidth: '1px' }}></div>
+         <div className={`absolute inset-0 flex items-center justify-center p-1 text-center text-[9px] font-medium z-10 ${textColor}`}>
+            {isEditing ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-full bg-transparent border-none outline-none focus:ring-0 text-center p-0 m-0"
+                style={{ fontSize: '9px' }}
+              />
+            ) : (
+              <span className="line-clamp-2">{data.label}</span>
+            )}
+         </div>
+         <Handle type="target" position={Position.Top} className="!w-1.5 !h-1.5 !-top-1 !z-20" />
+         <Handle type="source" position={Position.Bottom} className="!w-1.5 !h-1.5 !-bottom-1 !z-20" />
+         <Handle type="source" position={Position.Left} id="left" className="!w-1.5 !h-1.5 !-left-1 !z-20" />
+         <Handle type="source" position={Position.Right} id="right" className="!w-1.5 !h-1.5 !-right-1 !z-20" />
+      </div>
+    );
+  }
+
+  if (shape === "database") {
+    return (
+      <div className={`relative w-20 h-24 pointer-events-auto ${isSelectedStyle}`} onDoubleClick={handleDoubleClick}>
+         <svg className={`absolute inset-0 w-full h-full fill-white dark:fill-slate-800 stroke-slate-300 dark:stroke-slate-600 drop-shadow-sm`} strokeWidth="1" viewBox="0 0 100 120" preserveAspectRatio="none">
+            <path d="M 0 20 C 0 0, 100 0, 100 20 L 100 100 C 100 120, 0 120, 0 100 Z" />
+            <ellipse cx="50" cy="20" rx="49" ry="10" fill="none" stroke="inherit" />
+         </svg>
+         <div className={`absolute inset-0 flex items-center justify-center px-1 text-center text-[9px] font-medium z-10 ${textColor}`}>
+            {isEditing ? (
+              <input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-full mt-3 bg-transparent border-none outline-none focus:ring-0 text-center p-0 m-0"
+                style={{ fontSize: '9px' }}
+              />
+            ) : (
+              <span className="mt-3 line-clamp-3">{data.label}</span>
+            )}
+         </div>
+         <Handle type="target" position={Position.Top} className="!w-1.5 !h-1.5 !top-0 !z-20" />
+         <Handle type="source" position={Position.Bottom} className="!w-1.5 !h-1.5 !bottom-0 !z-20" />
+         <Handle type="source" position={Position.Left} id="left" className="!w-1.5 !h-1.5 !z-20" />
+         <Handle type="source" position={Position.Right} id="right" className="!w-1.5 !h-1.5 !z-20" />
+      </div>
+    );
+  }
+
+  const baseClasses = `relative flex items-center justify-center text-center text-[10px] font-medium shadow-sm transition-shadow ${bgColor} ${borderColor} ${textColor} ${isSelectedStyle} pointer-events-auto`;
+  
+  let shapeClass = "";
+  if (shape === "rectangle") shapeClass = "w-24 h-12 rounded-sm px-2";
+  if (shape === "rounded") shapeClass = "w-24 h-12 rounded-xl px-2";
+  if (shape === "circle") shapeClass = "w-16 h-16 rounded-full p-2";
+
+  return (
+    <div className={`${baseClasses} ${shapeClass}`} style={{ borderStyle: 'solid', borderWidth: '1px' }} onDoubleClick={handleDoubleClick}>
+      <Handle type="target" position={Position.Top} className="!w-1.5 !h-1.5" />
+      {isEditing ? (
+        <input
+          autoFocus
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          className="w-full bg-transparent border-none outline-none focus:ring-0 text-center p-0 m-0"
+          style={{ fontSize: '10px' }}
+        />
+      ) : (
+        <span className="line-clamp-3">{data.label}</span>
+      )}
+      <Handle type="source" position={Position.Bottom} className="!w-1.5 !h-1.5" />
+      <Handle type="source" position={Position.Left} id="left" className="!w-1.5 !h-1.5" />
+      <Handle type="source" position={Position.Right} id="right" className="!w-1.5 !h-1.5" />
+    </div>
+  );
+};
+
+const nodeTypes = {
+  customShape: ShapeNode,
+};
 
 export default function Graffle({ elements, onUpdateElement, onDeleteElement, onAddElement, isMaximized, onToggleMaximize }: GraffleProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -48,17 +175,14 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
           const existingNode = prevNodes.find(n => n.id === element.id);
           return {
             id: element.id,
+            type: "customShape",
             position: element.position || existingNode?.position || { x: x + (index % 3) * 200, y: y + Math.floor(index / 3) * 150 },
-            data: { label: element.label || "System Node" },
-            style: { 
-              background: '#fff', 
-              color: '#1e293b',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '10px 20px',
-              fontSize: '14px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-            }
+            data: { 
+              id: element.id,
+              label: element.label || "System Node", 
+              shape: element.shape || "rectangle",
+              onUpdateElement: onUpdateElement
+            },
           };
       });
     });
@@ -74,7 +198,7 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
           style: { stroke: '#94a3b8', strokeWidth: 2 },
         }));
     });
-  }, [elements, setNodes, setEdges]); 
+  }, [elements, setNodes, setEdges, onUpdateElement]); 
 
   const onNodesDelete = useCallback((deleted: Node[]) => {
     if (onDeleteElement) {
@@ -106,17 +230,48 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
           </h2>
           {onAddElement && (
             <div className="flex items-center gap-1">
-              <button 
-                onClick={() => onAddElement("node")}
-                className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded transition-colors"
-                title="Add Node"
-              >
-                + Node
-              </button>
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5">
+                <button 
+                  onClick={() => onAddElement("node", "rectangle")}
+                  className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                  title="Rectangle"
+                >
+                  <Square size={14} />
+                </button>
+                <button 
+                  onClick={() => onAddElement("node", "rounded")}
+                  className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                  title="Rounded Rectangle"
+                >
+                  <AppWindow size={14} />
+                </button>
+                <button 
+                  onClick={() => onAddElement("node", "circle")}
+                  className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                  title="Circle"
+                >
+                  <Circle size={14} />
+                </button>
+                <button 
+                  onClick={() => onAddElement("node", "diamond")}
+                  className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                  title="Decision / Diamond"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-diamond"><path d="M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z"/></svg>
+                </button>
+                <button 
+                  onClick={() => onAddElement("node", "database")}
+                  className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors"
+                  title="Database"
+                >
+                  <Database size={14} />
+                </button>
+              </div>
+              <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" />
               <button 
                 onClick={() => onAddElement("edge")}
                 className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 rounded transition-colors"
-                title="Add Edge"
+                title="Add Edge/Connection"
               >
                 + Edge
               </button>
@@ -155,6 +310,7 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
           <ReactFlow 
             nodes={nodes} 
             edges={edges}
+            nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodesDelete={onNodesDelete}
@@ -165,7 +321,8 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
             fitViewOptions={{ padding: 0.2 }}
             minZoom={0.5}
             maxZoom={2}
-            attributionPosition="bottom-right"
+            colorMode="dark"
+            proOptions={{ hideAttribution: true }}
           >
           <Controls showInteractive={false} />
           <MiniMap 

@@ -25,6 +25,7 @@ interface PlanProps {
   onUpdateScheduleItem?: (id: string, updates: Partial<ScheduleItem>) => void;
   onDeleteScheduleItem?: (id: string) => void;
   onAddScheduleItem?: () => void;
+  onSetFocus?: (elementId: string | null, action: string | null) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
@@ -34,6 +35,7 @@ export default function Plan({
   onUpdateScheduleItem,
   onDeleteScheduleItem,
   onAddScheduleItem,
+  onSetFocus,
   isMaximized, 
   onToggleMaximize 
 }: PlanProps) {

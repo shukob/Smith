@@ -198,6 +198,12 @@ class MeetingSession:
         if hasattr(self, 'adk_agent'):
             self.adk_agent.append_transcript("system", msg)
 
+    async def handle_user_set_focus(self, focus_data: dict) -> None:
+        """Store the user's current UI focus state for the Agent to read."""
+        await self.firestore_writer.set_user_focus(focus_data)
+        # We don't necessarily need to echo this to the transcript to avoid spamming the audio AI context,
+        # the ADK agent will read this directly from Firestore every 15 seconds.
+
     async def handle_user_edit_title(self, title: str) -> None:
         """Handle user direct edit to the session title."""
         await self.firestore_writer.update_title(title)

@@ -154,9 +154,32 @@ class AdkBackgroundAgent:
 
             try:
                 print(f"[ADK] Evaluating {len(context)} chars of new context...")
+                
+                # Fetch current state from Firestore to give the agent context
+                current_state_str = "Unknown"
+                if self.firestore_writer._doc_ref:
+                    doc = await self.firestore_writer._doc_ref.get()
+                    if doc.exists:
+                        data = doc.to_dict() or {}
+                        state = {
+                            "user_focus": data.get("user_focus", None),
+                            "outline": data.get("outline", []),
+                            "architecture": data.get("architecture", []),
+                            "focus": data.get("focus", []),
+                            "schedule": data.get("schedule", [])
+                        }
+                        import json
+                        current_state_str = json.dumps(state, indent=2, ensure_ascii=False)
+
                 prompt = (
                     f"Here is the latest transcript since your last check:\n\n{context}\n\n"
-                    "Update state if necessary using your available tools."
+                    f"Here is the CURRENT state of the dashboard panels as modified by the user or you previously:\n"
+                    f"```json\n{current_state_str}\n```\n\n"
+                    "Based on the transcript and the current dashboard state:\n"
+                    "1. Update the state if necessary using your available tools.\n"
+                    "2. Do NOT duplicate items that already exist in the state.\n"
+                    "3. If the user refers to existing items (e.g., 'that database node'), resolve it against the provided JSON state.\n"
+                    "4. VERY IMPORTANT: Pay close attention to 'user_focus' in the JSON state. It tells you exactly which pane and element ID the user is currently editing or looking at. Use this to disambiguate what they are referring to (e.g., 'Make this priority high')."
                 )
                 
                 content = types.Content(role="user", parts=[types.Part(text=prompt)])

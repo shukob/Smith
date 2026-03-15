@@ -17,6 +17,7 @@ interface OutlineProps {
   onUpdateNodeType?: (id: string, newType: OutlineNode["type"]) => void;
   onDeleteNode?: (id: string) => void;
   onAddChildNode?: (parentId: string) => void;
+  onUpdateNodeParent?: (id: string, newParentId: string) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }
@@ -25,12 +26,16 @@ function OutlineNodeItem({
   node, 
   onEdit,
   onAddChild,
-  onAddSibling
+  onAddSibling,
+  onIndent,
+  onOutdent
 }: { 
   node: OutlineNode; 
   onEdit?: (id: string, newText: string) => void;
   onAddChild?: (id: string) => void;
   onAddSibling?: (id: string) => void;
+  onIndent?: () => void;
+  onOutdent?: () => void;
 }) {
   const [text, setText] = useState(node.text);
 
@@ -61,7 +66,11 @@ function OutlineNodeItem({
         } else if (e.key === "Tab") {
           e.preventDefault();
           e.currentTarget.blur();
-          if (onAddChild) onAddChild(node.id);
+          if (e.shiftKey) {
+            if (onOutdent) onOutdent();
+          } else {
+            if (onIndent) onIndent();
+          }
         }
       }}
       className="text-sm font-medium text-slate-700 dark:text-slate-200 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1 w-full"
@@ -77,6 +86,7 @@ export default function Outline({
   onUpdateNodeType,
   onDeleteNode,
   onAddChildNode,
+  onUpdateNodeParent,
   isMaximized, 
   onToggleMaximize 
 }: OutlineProps) {
@@ -133,9 +143,22 @@ export default function Outline({
                     onEdit={onEditNode} 
                     onAddChild={onAddChildNode}
                     onAddSibling={(id) => {
-                      // Attempt to add a sibling by finding the parent
                       const parentId = nodes.find(n => n.id === id)?.parent_id || "";
                       if (onAddChildNode) onAddChildNode(parentId);
+                    }}
+                    onIndent={() => {
+                      const index = children.findIndex(n => n.id === node.id);
+                      if (index > 0 && onUpdateNodeParent) {
+                        onUpdateNodeParent(node.id, children[index - 1].id);
+                      }
+                    }}
+                    onOutdent={() => {
+                      if (node.parent_id && onUpdateNodeParent) {
+                        const parentNode = nodes.find(n => n.id === node.parent_id);
+                        if (parentNode) {
+                          onUpdateNodeParent(node.id, parentNode.parent_id || "");
+                        }
+                      }
                     }}
                   />
                 </div>

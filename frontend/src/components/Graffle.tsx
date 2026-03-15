@@ -138,6 +138,20 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
       </div>
 
       <div className="flex-grow w-full h-full min-h-[400px]">
+        <style dangerouslySetInnerHTML={{__html: `
+          .react-flow__controls { box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; }
+          .react-flow__controls-button { background: #fff; border-bottom: 1px solid #e2e8f0; fill: #64748b; }
+          .react-flow__controls-button:hover { background: #f8fafc; }
+          .react-flow__minimap { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          .react-flow__minimap-mask { fill: rgba(241, 245, 249, 0.7); }
+          
+          :is(.dark) .react-flow__controls-button { background: #1e293b; border-bottom: 1px solid #334155; fill: #94a3b8; }
+          :is(.dark) .react-flow__controls-button:hover { background: #334155; }
+          :is(.dark) .react-flow__minimap { background: #1e293b; border: 1px solid #334155; }
+          :is(.dark) .react-flow__minimap-mask { fill: rgba(15, 23, 42, 0.7); }
+          :is(.dark) .react-flow__attribution { background: rgba(15, 23, 42, 0.5); color: #94a3b8; }
+          :is(.dark) .react-flow__attribution a { color: #cbd5e1; }
+        `}} />
           <ReactFlow 
             nodes={nodes} 
             edges={edges}
@@ -153,11 +167,9 @@ export default function Graffle({ elements, onUpdateElement, onDeleteElement, on
             maxZoom={2}
             attributionPosition="bottom-right"
           >
-          <Controls className="fill-slate-500 bg-white border-slate-200 shadow-sm" />
+          <Controls showInteractive={false} />
           <MiniMap 
-            nodeColor="#cbd5e1" 
-            maskColor="rgba(241, 245, 249, 0.7)" 
-            className="border border-slate-200 shadow-sm rounded-lg overflow-hidden bg-slate-50"
+            nodeColor={(node: any) => document.documentElement.classList.contains('dark') ? '#475569' : '#cbd5e1'}
           />
           <Background color="#cbd5e1" gap={20} size={1.5} />
         </ReactFlow>

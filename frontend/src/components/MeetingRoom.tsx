@@ -26,6 +26,8 @@ export function MeetingRoom() {
   const [speculativeEnabled, setSpeculativeEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [maximizedPane, setMaximizedPane] = useState<"outline" | "graffle" | "focus" | "plan" | null>(null);
+  const [isSharingScreen, setIsSharingScreen] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Divergence state
   const [divergence, setDivergence] = useState({
@@ -138,6 +140,26 @@ export function MeetingRoom() {
     setForceConnect(true);
   }, []);
 
+  const handleShareScreen = async () => {
+    if (isSharingScreen && streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setIsSharingScreen(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        streamRef.current = stream;
+        setIsSharingScreen(true);
+        stream.getVideoTracks()[0].onended = () => {
+          setIsSharingScreen(false);
+          streamRef.current = null;
+        };
+      } catch (err) {
+        console.error("Failed to share screen:", err);
+      }
+    }
+  };
+
   const hasAttemptedConnectRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -213,6 +235,13 @@ export function MeetingRoom() {
     const node = outlineNodes.find(n => n.id === id);
     if (!node) return;
     const updatedNode = { ...node, type: newType };
+    sendMessage({ type: "user_edit_outline", node: updatedNode });
+  }, [outlineNodes, sendMessage]);
+
+  const handleUpdateNodeParent = useCallback((id: string, newParentId: string) => {
+    const node = outlineNodes.find(n => n.id === id);
+    if (!node) return;
+    const updatedNode = { ...node, parent_id: newParentId };
     sendMessage({ type: "user_edit_outline", node: updatedNode });
   }, [outlineNodes, sendMessage]);
 
@@ -366,8 +395,8 @@ export function MeetingRoom() {
         }}
         onDisconnect={disconnect}
         onToggleSpeculative={handleToggleSpeculative}
-        onShareScreen={() => { console.log("TODO: Share screen"); }}
-        isSharingScreen={false}
+        onShareScreen={handleShareScreen}
+        isSharingScreen={isSharingScreen}
         onUploadFile={(file) => { console.log("TODO: Upload file", file); }}
         onOpenSidebar={() => setIsSidebarOpen(true)}
         sessionTitle={metadata?.name || `Meeting ${sessionId.split("-").slice(-2).join("-")}`}
@@ -396,6 +425,7 @@ export function MeetingRoom() {
                 onUpdateNodeType={handleUpdateNodeType}
                 onDeleteNode={handleDeleteOutlineNode}
                 onAddChildNode={handleAddChildNode}
+                onUpdateNodeParent={handleUpdateNodeParent}
                 isMaximized={true}
                 onToggleMaximize={() => setMaximizedPane(null)}
               />
@@ -450,6 +480,7 @@ export function MeetingRoom() {
                   onUpdateNodeType={handleUpdateNodeType}
                   onDeleteNode={handleDeleteOutlineNode}
                   onAddChildNode={handleAddChildNode}
+                  onUpdateNodeParent={handleUpdateNodeParent}
                   isMaximized={maximizedPane === "outline"}
                   onToggleMaximize={() => setMaximizedPane("outline")}
                 />

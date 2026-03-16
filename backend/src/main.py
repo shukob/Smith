@@ -6,9 +6,11 @@ import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import firebase_admin
+from firebase_admin import auth as firebase_auth
 
 from .config import settings
 from .session_manager import SessionManager
@@ -22,6 +24,8 @@ session_manager = SessionManager()
 async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown."""
     print("[Smith] Starting up...")
+    firebase_admin.initialize_app()
+    print("[Smith] Firebase Admin initialized")
     yield
     print("[Smith] Shutting down...")
     await session_manager.close_all()
@@ -49,7 +53,7 @@ async def health():
 
 
 @app.websocket("/ws/meeting/{session_id}")
-async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False):
+async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False, token: str = Query(default="")):
     """WebSocket endpoint for a meeting session.
 
     Protocol:
@@ -64,7 +68,23 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
     - {"type": "disconnect"}: Close session
     """
     await websocket.accept()
-    
+
+    # Verify Firebase ID token
+    if not token:
+        await websocket.send_json({"type": "error", "message": "Unauthorized: no token"})
+        await websocket.close(code=4401)
+        return
+
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+        user_uid = decoded_token["uid"]
+        print(f"[WebSocket] Authenticated user={user_uid}, session_id={session_id}")
+    except Exception as e:
+        print(f"[WebSocket] Token verification failed: {e}")
+        await websocket.send_json({"type": "error", "message": "Unauthorized: invalid token"})
+        await websocket.close(code=4401)
+        return
+
     print(f"[WebSocket] Connected session_id={session_id}, force={force}")
     
     connection_id = str(uuid.uuid4())

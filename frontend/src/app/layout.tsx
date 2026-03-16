@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProviderWrapper } from "./AuthProviderWrapper";
 
 export const metadata: Metadata = {
   title: "Smith - AI Technical Consultant",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <AuthProviderWrapper>{children}</AuthProviderWrapper>
+      </body>
     </html>
   );
 }

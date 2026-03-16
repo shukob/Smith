@@ -13,11 +13,14 @@ import { useAudioStream, type AudioStreamMessage } from "@/hooks/useAudioStream"
 import { useFirestore } from "@/hooks/useFirestore";
 import { useDevices } from "@/hooks/useDevices";
 import { Sidebar } from "./Sidebar";
+import { useAuth } from "@/contexts/AuthContext";
 
 const WS_URL =
   process.env.NEXT_PUBLIC_BACKEND_WS_URL || "ws://localhost:8080/ws/meeting";
 
 export function MeetingRoom() {
+  const { user } = useAuth();
+  const [idToken, setIdToken] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sessionId, setSessionId] = useState(
     () => `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -125,7 +128,19 @@ export function MeetingRoom() {
     setLastVideoFrame(jpegData);
   }, []);
 
-  const wsUrl = useMemo(() => `${WS_URL}/${sessionId}${forceConnect ? "?force=true" : ""}`, [sessionId, forceConnect]);
+  useEffect(() => {
+    if (user) {
+      user.getIdToken().then(setIdToken).catch(console.error);
+    }
+  }, [user]);
+
+  const wsUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (idToken) params.set("token", idToken);
+    if (forceConnect) params.set("force", "true");
+    const qs = params.toString();
+    return `${WS_URL}/${sessionId}${qs ? `?${qs}` : ""}`;
+  }, [sessionId, forceConnect, idToken]);
 
   const {
     isConnected,

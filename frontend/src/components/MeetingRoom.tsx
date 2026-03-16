@@ -43,6 +43,9 @@ export function MeetingRoom() {
     isActive: false,
   });
 
+  // Language
+  const [language, setLanguage] = useState<"ja" | "en">("ja");
+
   // Lockout state
   const [isLockedOut, setIsLockedOut] = useState(false);
   const [forceConnect, setForceConnect] = useState(false);
@@ -138,9 +141,10 @@ export function MeetingRoom() {
     const params = new URLSearchParams();
     if (idToken) params.set("token", idToken);
     if (forceConnect) params.set("force", "true");
+    params.set("lang", language);
     const qs = params.toString();
     return `${WS_URL}/${sessionId}${qs ? `?${qs}` : ""}`;
-  }, [sessionId, forceConnect, idToken]);
+  }, [sessionId, forceConnect, idToken, language]);
 
   const {
     isConnected,
@@ -439,6 +443,8 @@ export function MeetingRoom() {
         onEditTitle={handleEditTitle}
         userName={user?.displayName || user?.email || ""}
         onSignOut={signOut}
+        language={language}
+        onChangeLanguage={setLanguage}
       />
 
       {/* Main content: 3-column layout */}

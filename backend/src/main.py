@@ -53,7 +53,7 @@ async def health():
 
 
 @app.websocket("/ws/meeting/{session_id}")
-async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False, token: str = Query(default="")):
+async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False, token: str = Query(default=""), lang: str = Query(default="ja")):
     """WebSocket endpoint for a meeting session.
 
     Protocol:
@@ -99,7 +99,7 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
         await websocket.close()
         return
 
-    session = await session_manager.create_session(session_id, websocket)
+    session = await session_manager.create_session(session_id, websocket, language=lang)
 
     try:
         # Initialize session components

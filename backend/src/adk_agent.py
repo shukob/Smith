@@ -129,6 +129,8 @@ class BackgroundAgent:
         self._transcript_buffer: List[str] = []
         self._bg_task: Optional[asyncio.Task] = None
         self._history: list = []  # conversation history for multi-turn
+        self._trigger = asyncio.Event()
+        self._last_transcript_time: float = 0
 
     async def initialize(self):
         """Initialize Firestore and seed past context."""
@@ -158,11 +160,15 @@ class BackgroundAgent:
     def append_transcript(self, role: str, text: str):
         if self._active:
             self._transcript_buffer.append(f"{role}: {text}")
+            self._last_transcript_time = asyncio.get_event_loop().time()
+            self._trigger.set()
 
     async def run_evaluation_loop(self):
-        """Periodically evaluate transcript with Gemini Flash + function calling."""
+        """Event-driven evaluation with debounce."""
         while self._active:
-            await asyncio.sleep(15)
+            await self._trigger.wait()
+            self._trigger.clear()
+            await asyncio.sleep(settings.background_agent_debounce_sec)
             if not self._transcript_buffer:
                 continue
 

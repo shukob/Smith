@@ -7,16 +7,23 @@ from google import genai
 from google.genai import types
 
 from .config import settings
-from .system_prompt import SYSTEM_PROMPT
+from .system_prompt import get_system_prompt
 from .function_tools import LIVE_TOOLS
 
 
 class GeminiLiveClient:
     """Simplified Gemini Live client. No queues - direct session calls."""
 
+    # Language code to BCP-47 voice mapping
+    LANGUAGE_VOICES = {
+        "ja": "Aoede",    # Japanese-capable voice
+        "en": "Kore",     # English voice
+    }
+
     def __init__(
         self,
         session_id: str,
+        language: str = "ja",
         on_audio: Optional[Callable[[bytes], Awaitable[None]]] = None,
         on_transcript: Optional[Callable[[str, str], Awaitable[None]]] = None,
         on_input_transcript: Optional[Callable[[str], Awaitable[None]]] = None,
@@ -26,6 +33,7 @@ class GeminiLiveClient:
         on_turn_complete: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         self.session_id = session_id
+        self.language = language
         self.on_audio = on_audio
         self.on_transcript = on_transcript
         self.on_input_transcript = on_input_transcript
@@ -44,10 +52,18 @@ class GeminiLiveClient:
 
     async def connect(self) -> None:
         """Open Live session and start receive loop."""
+        voice_name = self.LANGUAGE_VOICES.get(self.language, "Aoede")
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice_name,
+                    )
+                )
+            ),
             system_instruction=types.Content(
-                parts=[types.Part(text=SYSTEM_PROMPT)]
+                parts=[types.Part(text=get_system_prompt(self.language))]
             ),
             tools=LIVE_TOOLS,
             input_audio_transcription=types.AudioTranscriptionConfig(),

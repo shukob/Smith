@@ -24,6 +24,8 @@ interface ControlBarProps {
   onEditTitle: (title: string) => void;
   userName?: string;
   onSignOut?: () => void;
+  language: "ja" | "en";
+  onChangeLanguage: (lang: "ja" | "en") => void;
 }
 
 export function ControlBar({
@@ -46,6 +48,8 @@ export function ControlBar({
   onEditTitle,
   userName,
   onSignOut,
+  language,
+  onChangeLanguage,
 }: ControlBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localTitle, setLocalTitle] = useState(sessionTitle);
@@ -151,6 +155,25 @@ export function ControlBar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center border border-[var(--color-border)] rounded-lg overflow-hidden text-sm">
+          <button
+            onClick={() => onChangeLanguage("ja")}
+            className={`px-3 py-1.5 transition-colors ${language === "ja" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"}`}
+            disabled={isConnected}
+            title={isConnected ? "Disconnect to change language" : "Japanese"}
+          >
+            JP
+          </button>
+          <button
+            onClick={() => onChangeLanguage("en")}
+            className={`px-3 py-1.5 transition-colors ${language === "en" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"}`}
+            disabled={isConnected}
+            title={isConnected ? "Disconnect to change language" : "English"}
+          >
+            EN
+          </button>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] cursor-pointer">
           <input
             type="checkbox"

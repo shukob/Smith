@@ -186,52 +186,58 @@ class FirestoreWriter:
             print(f"[Firestore] Error updating user focus: {e}")
 
     async def _upsert_array_item(self, array_field: str, item: dict, id_field: str = "id") -> None:
-        """Helper to upsert an item in a document array."""
-        if not self._doc_ref:
+        """Helper to upsert an item in a document array (transaction-safe)."""
+        if not self._doc_ref or not self._db:
             return
-            
-        try:
-            doc = await self._doc_ref.get()
+
+        @firestore.async_transactional
+        async def _txn(transaction, doc_ref, arr_field, new_item, id_f):
+            doc = await doc_ref.get(transaction=transaction)
             data = doc.to_dict() or {}
-            items = data.get(array_field, [])
-            
-            item_id = item.get(id_field, "")
+            items = data.get(arr_field, [])
+
+            item_id = new_item.get(id_f, "")
             updated = False
             for i, existing_item in enumerate(items):
-                if existing_item.get(id_field) == item_id:
+                if existing_item.get(id_f) == item_id:
                     items[i] = {
-                        **item,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
+                        **new_item,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
                     updated = True
                     break
-                    
+
             if not updated:
                 items.append({
-                    **item,
-                    "created_at": datetime.now(timezone.utc).isoformat()
+                    **new_item,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 })
-                
-            await self._doc_ref.update({array_field: items})
+
+            transaction.update(doc_ref, {arr_field: items})
+
+        try:
+            await _txn(self._db.transaction(), self._doc_ref, array_field, item, id_field)
         except Exception as e:
             print(f"[Firestore] Failed to upsert to {array_field}: {e}")
 
     async def _remove_array_item(self, array_field: str, item_id: str, id_field: str = "id") -> None:
-        """Helper to remove an item from a document array by ID."""
-        if not self._doc_ref:
+        """Helper to remove an item from a document array by ID (transaction-safe)."""
+        if not self._doc_ref or not self._db:
             return
-            
-        try:
-            doc = await self._doc_ref.get()
+
+        @firestore.async_transactional
+        async def _txn(transaction, doc_ref, arr_field, del_id, id_f):
+            doc = await doc_ref.get(transaction=transaction)
             data = doc.to_dict() or {}
-            items = data.get(array_field, [])
-            
-            initial_count = len(items)
-            items = [item for item in items if item.get(id_field) != item_id]
-            
-            if len(items) < initial_count:
-                await self._doc_ref.update({array_field: items})
-                print(f"[Firestore] Removed {item_id} from {array_field}")
+            items = data.get(arr_field, [])
+
+            new_items = [it for it in items if it.get(id_f) != del_id]
+            if len(new_items) < len(items):
+                transaction.update(doc_ref, {arr_field: new_items})
+
+        try:
+            await _txn(self._db.transaction(), self._doc_ref, array_field, item_id, id_field)
+            print(f"[Firestore] Removed {item_id} from {array_field}")
         except Exception as e:
             print(f"[Firestore] Failed to remove from {array_field}: {e}")
 

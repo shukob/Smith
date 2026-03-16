@@ -29,6 +29,7 @@ class MeetingSession:
 
     session_id: str
     websocket: WebSocket
+    language: str = "ja"
     gemini_client: Optional[GeminiLiveClient] = None
     speculative_engine: Optional[SpeculativeEngine] = None
     firestore_writer: Optional[FirestoreWriter] = None
@@ -49,6 +50,7 @@ class MeetingSession:
         # Initialize Gemini Live client
         self.gemini_client = GeminiLiveClient(
             session_id=self.session_id,
+            language=self.language,
             on_audio=self._handle_gemini_audio,
             on_transcript=self._handle_transcript,
             on_input_transcript=self._handle_input_transcript,
@@ -313,6 +315,30 @@ class MeetingSession:
                 pass
             return {"status": "clarification_requested"}
 
+        elif name == "upsert_outline_node":
+            await self.firestore_writer.upsert_outline_node(args)
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added outline node: {args.get('text', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_architecture_element":
+            await self.firestore_writer.upsert_architecture_element(args)
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added architecture element: {args.get('label', args.get('id', ''))}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_task":
+            await self.firestore_writer.upsert_task(args)
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added task: {args.get('title', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_schedule_item":
+            await self.firestore_writer.upsert_schedule_item(args)
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added schedule item: {args.get('name', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
         return {"status": "unknown_function"}
 
     async def _handle_interrupted(self) -> None:
@@ -389,7 +415,7 @@ class SessionManager:
         self._lock = asyncio.Lock()
 
     async def create_session(
-        self, session_id: str, websocket: WebSocket
+        self, session_id: str, websocket: WebSocket, language: str = "ja"
     ) -> MeetingSession:
         """Create and initialize a new meeting session."""
         async with self._lock:
@@ -399,6 +425,7 @@ class SessionManager:
             session = MeetingSession(
                 session_id=session_id,
                 websocket=websocket,
+                language=language,
             )
             self._sessions[session_id] = session
             print(f"[SessionManager] Created session: {session_id}")

@@ -16,6 +16,9 @@ class Settings:
     gcp_project_id: str = field(default_factory=lambda: os.environ.get("GCP_PROJECT_ID", ""))
     firestore_collection: str = "smith_sessions"
 
+    # Background Agent
+    background_agent_debounce_sec: float = 2.0
+
     # Speculative Engine
     speculation_interval_sec: float = 2.0
     divergence_threshold_ignore: float = 0.3

@@ -83,7 +83,78 @@ ASK_CLARIFICATION = types.FunctionDeclaration(
     ),
 )
 
+# Tool: Add/update an outline node
+UPSERT_OUTLINE_NODE = types.FunctionDeclaration(
+    name="upsert_outline_node",
+    description="Add or update a node in the hierarchical requirements/planning outline. Call when the user explicitly mentions a requirement, goal, assumption, or planning item.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "id": types.Schema(type="STRING", description="Unique ID for this node (e.g. 'outline-1')."),
+            "text": types.Schema(type="STRING", description="Text content of the node."),
+            "type": types.Schema(type="STRING", description="Node type.", enum=["requirement", "goal", "assumption", "note"]),
+            "parent_id": types.Schema(type="STRING", description="Parent node ID, or empty string if root."),
+            "order": types.Schema(type="INTEGER", description="Order among siblings (0-based)."),
+        },
+        required=["id", "text", "type"],
+    ),
+)
+
+# Tool: Add/update an architecture element
+UPSERT_ARCHITECTURE_ELEMENT = types.FunctionDeclaration(
+    name="upsert_architecture_element",
+    description="Add a node or edge to the system architecture diagram. Call when the user explicitly mentions a system component, service, database, or connection between them.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "id": types.Schema(type="STRING", description="Unique ID (e.g. 'auth-svc', 'edge-auth-db')."),
+            "type": types.Schema(type="STRING", description="'node' or 'edge'."),
+            "label": types.Schema(type="STRING", description="Display label (for nodes)."),
+            "source": types.Schema(type="STRING", description="Source node ID (for edges)."),
+            "target": types.Schema(type="STRING", description="Target node ID (for edges)."),
+        },
+        required=["id", "type"],
+    ),
+)
+
+# Tool: Add/update a task
+UPSERT_TASK = types.FunctionDeclaration(
+    name="upsert_task",
+    description="Add or update a task on the Kanban board. Call when the user explicitly mentions an action item, task, or work to be done.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "id": types.Schema(type="STRING", description="Unique task ID (e.g. 'task-1')."),
+            "title": types.Schema(type="STRING", description="Task title."),
+            "status": types.Schema(type="STRING", description="Task status.", enum=["todo", "in_progress", "done"]),
+            "priority": types.Schema(type="STRING", description="Priority level.", enum=["high", "medium", "low"]),
+        },
+        required=["id", "title", "status", "priority"],
+    ),
+)
+
+# Tool: Add/update a schedule item
+UPSERT_SCHEDULE_ITEM = types.FunctionDeclaration(
+    name="upsert_schedule_item",
+    description="Add or update a timeline item on the schedule Gantt chart. Call when the user explicitly mentions a deadline, milestone, or timeline.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "id": types.Schema(type="STRING", description="Unique ID (e.g. 'sched-1')."),
+            "name": types.Schema(type="STRING", description="Item name."),
+            "start_date": types.Schema(type="STRING", description="Start date ISO YYYY-MM-DD."),
+            "end_date": types.Schema(type="STRING", description="End date ISO YYYY-MM-DD."),
+            "progress": types.Schema(type="INTEGER", description="Completion 0-100."),
+        },
+        required=["id", "name", "start_date", "end_date", "progress"],
+    ),
+)
+
 # All tools for the live session
 LIVE_TOOLS = [
-    types.Tool(function_declarations=[EXTRACT_REQUIREMENT, UPDATE_SUMMARY, ASK_CLARIFICATION])
+    types.Tool(function_declarations=[
+        EXTRACT_REQUIREMENT, UPDATE_SUMMARY, ASK_CLARIFICATION,
+        UPSERT_OUTLINE_NODE, UPSERT_ARCHITECTURE_ELEMENT,
+        UPSERT_TASK, UPSERT_SCHEDULE_ITEM,
+    ])
 ]

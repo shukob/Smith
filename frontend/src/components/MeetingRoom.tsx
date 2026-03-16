@@ -19,7 +19,7 @@ const WS_URL =
   process.env.NEXT_PUBLIC_BACKEND_WS_URL || "ws://localhost:8080/ws/meeting";
 
 export function MeetingRoom() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [idToken, setIdToken] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sessionId, setSessionId] = useState(
@@ -186,8 +186,8 @@ export function MeetingRoom() {
   const hasAttemptedConnectRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
-    if (!sessionId) return;
-    
+    if (!sessionId || !idToken) return;
+
     // Auto-connect to the control socket so the 4 panes are immediately interactable, but only try once
     if (!isConnected && !isLockedOut && !hasAttemptedConnectRef.current[sessionId]) {
       hasAttemptedConnectRef.current[sessionId] = true;
@@ -201,7 +201,7 @@ export function MeetingRoom() {
       const timer = setTimeout(() => setForceConnect(false), 2000);
       return () => clearTimeout(timer);
     }
-  }, [forceConnect, connect, isConnected, isLockedOut, sessionId]);
+  }, [forceConnect, connect, isConnected, isLockedOut, sessionId, idToken]);
 
   const handleToggleSpeculative = useCallback(
     (enabled: boolean) => {
@@ -437,6 +437,8 @@ export function MeetingRoom() {
         onOpenSidebar={() => setIsSidebarOpen(true)}
         sessionTitle={metadata?.name || `Meeting ${sessionId.split("-").slice(-2).join("-")}`}
         onEditTitle={handleEditTitle}
+        userName={user?.displayName || user?.email || ""}
+        onSignOut={signOut}
       />
 
       {/* Main content: 3-column layout */}

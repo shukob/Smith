@@ -22,6 +22,8 @@ interface ControlBarProps {
   onOpenSidebar: () => void;
   sessionTitle: string;
   onEditTitle: (title: string) => void;
+  userName?: string;
+  onSignOut?: () => void;
 }
 
 export function ControlBar({
@@ -42,6 +44,8 @@ export function ControlBar({
   onOpenSidebar,
   sessionTitle,
   onEditTitle,
+  userName,
+  onSignOut,
 }: ControlBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localTitle, setLocalTitle] = useState(sessionTitle);
@@ -187,6 +191,22 @@ export function ControlBar({
           </select>
         </div>
       </div>
+
+      {/* User info & sign out */}
+      {userName && (
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-xs text-gray-400 truncate max-w-[120px]">{userName}</span>
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+            >
+              Logout
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-"""Gemini Multimodal Live API client for real-time audio conversation."""
+"""Gemini Multimodal Live API client - simplified direct session."""
 import asyncio
+import traceback
 from typing import Callable, Optional, Awaitable
 
 from google import genai
@@ -11,18 +12,7 @@ from .function_tools import LIVE_TOOLS
 
 
 class GeminiLiveClient:
-    """
-    Wraps the Gemini Live API for bidirectional audio streaming.
-
-    Handles:
-    - WebSocket connection to Gemini Live API
-    - Sending PCM16 16kHz audio
-    - Receiving PCM 24kHz audio responses
-    - Function call routing
-    - Input transcription for speculative engine
-    - Interruption detection
-    - Session resumption
-    """
+    """Simplified Gemini Live client. No queues - direct session calls."""
 
     def __init__(
         self,
@@ -45,28 +35,15 @@ class GeminiLiveClient:
         self.on_turn_complete = on_turn_complete
 
         self._client = genai.Client(api_key=settings.google_api_key)
-        self._session_task: Optional[asyncio.Task] = None
+        self._session = None
+        self._cm = None  # context manager
+        self._receive_task: Optional[asyncio.Task] = None
         self._connected = False
         self._resumption_handle: Optional[str] = None
         self.is_speaking = False
-        
-        # Queues to pass data into the async context manager loop
-        self._audio_queue: asyncio.Queue = asyncio.Queue()
-        self._text_queue: asyncio.Queue = asyncio.Queue()
-        self._video_queue: asyncio.Queue = asyncio.Queue()
-        self._content_queue: asyncio.Queue = asyncio.Queue()
 
     async def connect(self) -> None:
-        """Establish connection to Gemini Live API."""
-        if self._connected:
-            return
-
-        self._connected = True
-        self._session_task = asyncio.create_task(self._run_session_loop())
-        print(f"[Gemini] Connected for session {self.session_id}")
-
-    async def _run_session_loop(self) -> None:
-        """Background task maintaining the async context and routing queues."""
+        """Open Live session and start receive loop."""
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=types.Content(
@@ -84,215 +61,160 @@ class GeminiLiveClient:
         )
 
         try:
-            async with self._client.aio.live.connect(
+            print(f"[Gemini] Connecting (model={settings.gemini_live_model})...")
+            self._cm = self._client.aio.live.connect(
                 model=settings.gemini_live_model,
                 config=config,
-            ) as session:
-                
-                # Start the receive loop task tied strictly to this session
-                receive_task = asyncio.create_task(self._receive_loop(session))
-                send_audio_task = asyncio.create_task(self._send_audio_loop(session))
-                send_text_task = asyncio.create_task(self._send_text_loop(session))
-                send_video_task = asyncio.create_task(self._send_video_loop(session))
-                send_content_task = asyncio.create_task(self._send_content_loop(session))
-                
-                # Wait until connected goes false (meaning `close()` was called or error)
-                while self._connected:
-                    await asyncio.sleep(0.1)
-                
-                # Clean teardown
-                receive_task.cancel()
-                send_audio_task.cancel()
-                send_text_task.cancel()
-                send_video_task.cancel()
-                send_content_task.cancel()
-
+            )
+            self._session = await self._cm.__aenter__()
+            self._connected = True
+            print(f"[Gemini] Live session opened!")
+            self._receive_task = asyncio.create_task(self._receive_loop())
         except Exception as e:
-            print(f"[Gemini] Session loop died: {e}")
+            print(f"[Gemini] Failed to connect: {e}")
+            traceback.print_exc()
             self._connected = False
 
-    async def _send_audio_loop(self, session) -> None:
-        """Consume audio from queue and dispatch to API."""
+    async def _receive_loop(self) -> None:
+        """Read responses from Gemini."""
+        recv_count = 0
         try:
-            while self._connected:
-                pcm_data = await self._audio_queue.get()
-                await session.send_realtime_input(
-                    audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
-                )
-                self._audio_queue.task_done()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[Gemini] Send audio loop error: {e}")
-
-    async def _send_text_loop(self, session) -> None:
-        """Consume context text from queue and dispatch to API."""
-        try:
-            while self._connected:
-                text = await self._text_queue.get()
-                await session.send_client_content(
-                    turns=types.Content(
-                        role="user",
-                        parts=[types.Part(text=text)],
-                    ),
-                    turn_complete=False,
-                )
-                self._text_queue.task_done()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[Gemini] Send text loop error: {e}")
-
-    async def _send_video_loop(self, session) -> None:
-        """Consume video frames from queue and dispatch to API."""
-        try:
-            while self._connected:
-                image_bytes = await self._video_queue.get()
-                await session.send_realtime_input(
-                    video=types.Blob(data=image_bytes, mime_type="image/jpeg")
-                )
-                self._video_queue.task_done()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[Gemini] Send video loop error: {e}")
-
-    async def _send_content_loop(self, session) -> None:
-        """Consume file uploads from queue and dispatch to API as context."""
-        try:
-            while self._connected:
-                file_msg = await self._content_queue.get()
-                await session.send_client_content(
-                    turns=types.Content(
-                        role="user",
-                        parts=[types.Part.from_bytes(
-                            data=file_msg["data"],
-                            mime_type=file_msg["mime_type"],
-                        )],
-                    ),
-                    turn_complete=True,
-                )
-                self._content_queue.task_done()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[Gemini] Send content loop error: {e}")
-
-    async def _receive_loop(self, session) -> None:
-        """Process incoming messages from Gemini Live API."""
-        try:
-            while self._connected:
-                async for response in session.receive():
-                    await self._handle_response(session, response)
+            print("[Gemini] Receive loop started")
+            while self._connected and self._session:
+                async for response in self._session.receive():
+                    recv_count += 1
+                    if recv_count <= 5 or recv_count % 50 == 0:
+                        print(f"[Gemini] Recv #{recv_count}")
+                    await self._handle_response(response)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             print(f"[Gemini] Receive loop error: {e}")
             self._connected = False
+        finally:
+            print(f"[Gemini] Receive loop ended ({recv_count} msgs)")
 
-    async def _handle_response(self, session, response) -> None:
-        """Route a single response message."""
-        # Server content (audio, text, interruption)
+    async def _handle_response(self, response) -> None:
+        """Route a single response."""
         if response.server_content:
             sc = response.server_content
 
-            # Model audio/text output
             if sc.model_turn:
                 if not self.is_speaking:
                     self.is_speaking = True
                     if self.on_turn_started:
                         await self.on_turn_started()
-
                 for part in sc.model_turn.parts:
-                    # Audio data (24kHz PCM)
                     if part.inline_data and isinstance(part.inline_data.data, bytes):
                         if self.on_audio:
                             await self.on_audio(part.inline_data.data)
 
-            # Interruption detected by Gemini
             if sc.interrupted:
                 self.is_speaking = False
                 if self.on_interrupted:
                     await self.on_interrupted()
 
-            # Turn complete
             if sc.generation_complete:
                 self.is_speaking = False
                 if self.on_turn_complete:
                     await self.on_turn_complete()
 
-            # Input transcription (user's speech text)
             if sc.input_transcription and sc.input_transcription.text:
                 if self.on_input_transcript:
                     await self.on_input_transcript(sc.input_transcription.text)
 
-            # Output transcription (AI's speech text)
             if sc.output_transcription and sc.output_transcription.text:
                 if self.on_transcript:
                     await self.on_transcript("assistant", sc.output_transcription.text)
 
-        # Function calls
         if response.tool_call:
             for fc in response.tool_call.function_calls:
                 if self.on_function_call:
                     result = await self.on_function_call(fc.id, fc.name, fc.args or {})
-                    # Send function response back
                     func_response = types.FunctionResponse(
                         id=fc.id,
                         name=fc.name,
                         response=result or {"status": "ok"},
                     )
-                    await session.send_tool_response(
+                    await self._session.send_tool_response(
                         function_responses=[func_response]
                     )
 
-        # Session resumption update
         if response.session_resumption_update:
             if response.session_resumption_update.resumable:
                 self._resumption_handle = response.session_resumption_update.new_handle
-                print(f"[Gemini] Session resumption handle updated")
+                print("[Gemini] Session resumption handle updated")
 
-        # Go away signal
         if response.go_away:
-            print(f"[Gemini] GoAway received, time left: {response.go_away.time_left}")
+            print(f"[Gemini] GoAway received, time_left={response.go_away.time_left}s")
+
+    # --- Direct send methods (no queues) ---
 
     async def send_audio(self, pcm_data: bytes) -> None:
-        """Send PCM16 16kHz mono audio to Gemini."""
-        if self._connected:
-            await self._audio_queue.put(pcm_data)
+        """Send PCM16 16kHz audio to Gemini."""
+        if self._session and self._connected:
+            await self._session.send_realtime_input(
+                audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
+            )
 
     async def send_video_frame(self, image_data: bytes) -> None:
-        """Send a JPEG/PNG image frame to Gemini."""
-        if self._connected:
-            await self._video_queue.put(image_data)
-
-    async def send_file_context(self, file_data: bytes, mime_type: str, filename: str) -> None:
-        """Upload an entire file to Gemini as context."""
-        if self._connected:
-            await self._content_queue.put({
-                "data": file_data,
-                "mime_type": mime_type,
-                "filename": filename
-            })
+        """Send a JPEG image frame to Gemini."""
+        if self._session and self._connected:
+            await self._session.send_realtime_input(
+                video=types.Blob(data=image_data, mime_type="image/jpeg")
+            )
 
     async def send_text_context(self, text: str) -> None:
-        """Inject text context into the session (e.g., speaker metadata)."""
-        if self._connected:
-            await self._text_queue.put(text)
+        """Inject text context into the session."""
+        if self._session and self._connected:
+            await self._session.send_client_content(
+                turns=types.Content(
+                    role="user",
+                    parts=[types.Part(text=text)],
+                ),
+                turn_complete=False,
+            )
+
+    async def send_file_context(self, file_data: bytes, mime_type: str, filename: str) -> None:
+        """Upload a file to Gemini as context."""
+        if self._session and self._connected:
+            await self._session.send_client_content(
+                turns=types.Content(
+                    role="user",
+                    parts=[types.Part.from_bytes(data=file_data, mime_type=mime_type)],
+                ),
+                turn_complete=True,
+            )
+
+    async def send_interrupt(self) -> None:
+        """Force Gemini to yield the floor."""
+        if self._session and self._connected and self.is_speaking:
+            print("[Gemini] Sending interrupt")
+            await self._session.send_client_content(
+                turns=types.Content(
+                    role="user",
+                    parts=[types.Part(text="[User interrupting]")],
+                ),
+                turn_complete=True,
+            )
 
     async def close(self) -> None:
-        """Close the Gemini Live connection."""
+        """Close the session."""
         self._connected = False
-        
-        if self._session_task:
-            self._session_task.cancel()
+        if self._receive_task:
+            self._receive_task.cancel()
             try:
-                await self._session_task
+                await self._receive_task
             except asyncio.CancelledError:
                 pass
-            self._session_task = None
-
-        print(f"[Gemini] Connection closed for session {self.session_id}")
+        if self._cm:
+            try:
+                await self._cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._cm = None
+            self._session = None
+        print(f"[Gemini] Closed for session {self.session_id}")
 
     @property
     def connected(self) -> bool:

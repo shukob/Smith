@@ -12,11 +12,6 @@ class Settings:
     gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
     gemini_flash_model: str = "gemini-2.5-flash"
 
-    # Simli Avatar
-    simli_api_key: str = field(default_factory=lambda: os.environ.get("SIMLI_API_KEY", ""))
-    simli_face_id: str = field(default_factory=lambda: os.environ.get("SIMLI_FACE_ID", ""))
-    enable_simli: bool = field(default_factory=lambda: os.environ.get("ENABLE_SIMLI", "true").lower() == "true")
-
     # Firestore
     gcp_project_id: str = field(default_factory=lambda: os.environ.get("GCP_PROJECT_ID", ""))
     firestore_collection: str = "smith_sessions"

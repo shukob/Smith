@@ -106,23 +106,30 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
         await session.initialize()
 
         # Send ready signal
-        simli_ok = session.simli_client and session.simli_client.is_connected
         await websocket.send_json({
             "type": "ready",
             "session_id": session_id,
             "speculative_engine": settings.enable_speculative_engine,
-            "simli_connected": bool(simli_ok),
         })
 
         # Main message loop
+        msg_count = 0
+        audio_bytes_total = 0
         while True:
             message = await websocket.receive()
 
             if message.get("type") == "websocket.disconnect":
                 break
 
+            msg_count += 1
+            if msg_count <= 3 or msg_count % 100 == 0:
+                print(f"[WS] msg#{msg_count} type={message.get('type', '?')} bytes={len(message.get('bytes', b''))} text={message.get('text', '')[:80] if message.get('text') else ''}")
+
             # Binary frame = audio data
             if "bytes" in message and message["bytes"]:
+                audio_bytes_total += len(message["bytes"])
+                if msg_count <= 3 or msg_count % 200 == 0:
+                    print(f"[WS] Audio: {len(message['bytes'])}B (total {audio_bytes_total}B)")
                 await session.handle_browser_audio(message["bytes"])
 
             # Text frame = JSON control message

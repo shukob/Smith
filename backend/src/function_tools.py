@@ -151,10 +151,8 @@ UPSERT_SCHEDULE_ITEM = types.FunctionDeclaration(
 )
 
 # All tools for the live session
+# NOTE: 7 tools causes intermittent silence from native audio model.
+# Keep to 3 for stability. Dashboard edits handled by BackgroundAgent.
 LIVE_TOOLS = [
-    types.Tool(function_declarations=[
-        EXTRACT_REQUIREMENT, UPDATE_SUMMARY, ASK_CLARIFICATION,
-        UPSERT_OUTLINE_NODE, UPSERT_ARCHITECTURE_ELEMENT,
-        UPSERT_TASK, UPSERT_SCHEDULE_ITEM,
-    ])
+    types.Tool(function_declarations=[EXTRACT_REQUIREMENT, UPDATE_SUMMARY, ASK_CLARIFICATION])
 ]

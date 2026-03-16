@@ -102,9 +102,10 @@ TOOL_DECLARATIONS = [
     ),
 ]
 
-SYSTEM_INSTRUCTION = (
+SYSTEM_INSTRUCTION_TEMPLATE = (
     "You are the background strategic brain behind a technical consulting AI. "
     "You will receive batches of transcript from an ongoing meeting. "
+    "{language_instruction}\n"
     "Your job is to:\n"
     "1. Keep the meeting summary updated using 'update_summary' if topics change. Always generate a concise 3-4 word title.\n"
     "2. Maintain an Outline of Requirements, Goals, and Assumptions using 'upsert_outline_node'.\n"
@@ -116,13 +117,27 @@ SYSTEM_INSTRUCTION = (
     "Always call at least one tool per evaluation."
 )
 
+LANGUAGE_INSTRUCTIONS = {
+    "ja": "All tool content (labels, titles, text, summaries) MUST be written in Japanese (日本語).",
+    "en": "All tool content (labels, titles, text, summaries) MUST be written in English.",
+}
+
 
 class BackgroundAgent:
     """Background agent using genai directly with function calling."""
 
-    def __init__(self, session_id: str, live_client):
+    TOOL_PANE_MAP = {
+        "upsert_outline_node": "outline",
+        "upsert_architecture_element": "graffle",
+        "upsert_task": "focus",
+        "upsert_schedule_item": "plan",
+    }
+
+    def __init__(self, session_id: str, live_client, language: str = "ja", on_pane_update=None):
         self.session_id = session_id
         self.live_client = live_client
+        self.language = language
+        self.on_pane_update = on_pane_update  # async callback(pane: str)
         self.firestore_writer = FirestoreWriter(session_id)
         self._client = genai.Client(api_key=settings.google_api_key)
         self._active = False
@@ -209,7 +224,9 @@ class BackgroundAgent:
                     model=settings.gemini_flash_model,
                     contents=messages,
                     config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION,
+                        system_instruction=SYSTEM_INSTRUCTION_TEMPLATE.format(
+                            language_instruction=LANGUAGE_INSTRUCTIONS.get(self.language, LANGUAGE_INSTRUCTIONS["ja"])
+                        ),
                         tools=[types.Tool(function_declarations=TOOL_DECLARATIONS)],
                         temperature=0.1,
                     ),
@@ -265,6 +282,11 @@ class BackgroundAgent:
             elif name == "upsert_schedule_item":
                 await self.firestore_writer.upsert_schedule_item(args)
                 print(f"[Agent Tool] Schedule: {args.get('id')}")
+
+            # Notify frontend to focus the relevant pane
+            pane = self.TOOL_PANE_MAP.get(name)
+            if pane and self.on_pane_update:
+                await self.on_pane_update(pane)
 
             elif name == "inject_thought":
                 msg = args.get("message", "")

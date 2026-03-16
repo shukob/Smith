@@ -159,16 +159,14 @@ export function ControlBar({
           <button
             onClick={() => onChangeLanguage("ja")}
             className={`px-3 py-1.5 transition-colors ${language === "ja" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"}`}
-            disabled={isConnected}
-            title={isConnected ? "Disconnect to change language" : "Japanese"}
+            title="Japanese"
           >
             JP
           </button>
           <button
             onClick={() => onChangeLanguage("en")}
             className={`px-3 py-1.5 transition-colors ${language === "en" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"}`}
-            disabled={isConnected}
-            title={isConnected ? "Disconnect to change language" : "English"}
+            title="English"
           >
             EN
           </button>

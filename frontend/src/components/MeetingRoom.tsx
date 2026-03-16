@@ -34,6 +34,46 @@ export function MeetingRoom() {
   const [lastVideoFrame, setLastVideoFrame] = useState<ArrayBuffer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Chat panel width (resizable, persisted)
+  const [chatWidth, setChatWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("smith-chat-width");
+      return saved ? parseInt(saved, 10) : 320;
+    }
+    return 320;
+  });
+  const isResizingRef = useRef(false);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = chatWidth;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const newWidth = Math.max(200, Math.min(600, startWidth + ev.clientX - startX));
+      setChatWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [chatWidth]);
+
+  useEffect(() => {
+    localStorage.setItem("smith-chat-width", String(chatWidth));
+  }, [chatWidth]);
+
   // Divergence state
   const [divergence, setDivergence] = useState({
     score: 0,
@@ -67,7 +107,7 @@ export function MeetingRoom() {
             const updated = [...prev];
             updated[updated.length - 1] = {
               ...last,
-              text: last.text + msg.text,
+              text: last.text + " " + msg.text,
               lastUpdate: now,
             };
             return updated;
@@ -111,6 +151,12 @@ export function MeetingRoom() {
       case "interrupted":
         setDivergence((prev) => ({ ...prev, isActive: false }));
         setIsSpeaking(false);
+        break;
+
+      case "pane_focus":
+        setMaximizedPane(msg.pane as "outline" | "graffle" | "focus" | "plan");
+        // Auto-restore after 4 seconds
+        setTimeout(() => setMaximizedPane(null), 4000);
         break;
 
       case "ready":
@@ -186,6 +232,16 @@ export function MeetingRoom() {
       }
     }
   };
+
+  const handleChangeLanguage = useCallback((lang: "ja" | "en") => {
+    if (lang === language) return;
+    setLanguage(lang);
+    // If connected, disconnect so the wsUrl change triggers reconnect
+    if (isConnected) {
+      disconnect();
+      hasAttemptedConnectRef.current = {};
+    }
+  }, [language, isConnected, disconnect]);
 
   const hasAttemptedConnectRef = useRef<Record<string, boolean>>({});
 
@@ -444,13 +500,13 @@ export function MeetingRoom() {
         userName={user?.displayName || user?.email || ""}
         onSignOut={signOut}
         language={language}
-        onChangeLanguage={setLanguage}
+        onChangeLanguage={handleChangeLanguage}
       />
 
       {/* Main content: 3-column layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Avatar + Transcript */}
-        <div className="w-80 flex flex-col border-r border-[var(--color-border)]">
+        {/* Left: Avatar + Transcript (resizable) */}
+        <div className="flex flex-col border-r border-[var(--color-border)] shrink-0" style={{ width: chatWidth }}>
           <div className="h-64 p-4">
             <AvatarPanel isConnected={isConnected} isSpeaking={isSpeaking} simliConnected={simliConnected} onVideoFrame={lastVideoFrame} />
           </div>
@@ -458,6 +514,11 @@ export function MeetingRoom() {
             <TranscriptPanel entries={transcript} />
           </div>
         </div>
+        {/* Resize handle */}
+        <div
+          className="w-1 cursor-col-resize hover:bg-[var(--color-accent)] active:bg-[var(--color-accent)] transition-colors shrink-0"
+          onMouseDown={handleResizeStart}
+        />
 
         {/* Main content: 4-Pane Dashboard */}
         <div className="flex-1 flex flex-col p-4 gap-4 bg-slate-50 dark:bg-slate-950 overflow-hidden">

@@ -63,7 +63,9 @@ class MeetingSession:
 
         # Initialize Background Agent (genai direct)
         self.adk_agent = BackgroundAgent(
-            session_id=self.session_id, live_client=self.gemini_client
+            session_id=self.session_id, live_client=self.gemini_client,
+            language=self.language,
+            on_pane_update=self._notify_pane_focus,
         )
         await self.adk_agent.initialize()
         self.adk_agent.start()
@@ -317,29 +319,40 @@ class MeetingSession:
 
         elif name == "upsert_outline_node":
             await self.firestore_writer.upsert_outline_node(args)
+            await self._notify_pane_focus("outline")
             if hasattr(self, 'adk_agent'):
                 self.adk_agent.append_transcript("system", f"[Live AI added outline node: {args.get('text', '')}]")
             return {"status": "ok", "id": args.get("id")}
 
         elif name == "upsert_architecture_element":
             await self.firestore_writer.upsert_architecture_element(args)
+            await self._notify_pane_focus("graffle")
             if hasattr(self, 'adk_agent'):
                 self.adk_agent.append_transcript("system", f"[Live AI added architecture element: {args.get('label', args.get('id', ''))}]")
             return {"status": "ok", "id": args.get("id")}
 
         elif name == "upsert_task":
             await self.firestore_writer.upsert_task(args)
+            await self._notify_pane_focus("focus")
             if hasattr(self, 'adk_agent'):
                 self.adk_agent.append_transcript("system", f"[Live AI added task: {args.get('title', '')}]")
             return {"status": "ok", "id": args.get("id")}
 
         elif name == "upsert_schedule_item":
             await self.firestore_writer.upsert_schedule_item(args)
+            await self._notify_pane_focus("plan")
             if hasattr(self, 'adk_agent'):
                 self.adk_agent.append_transcript("system", f"[Live AI added schedule item: {args.get('name', '')}]")
             return {"status": "ok", "id": args.get("id")}
 
         return {"status": "unknown_function"}
+
+    async def _notify_pane_focus(self, pane: str) -> None:
+        """Notify frontend to maximize a pane when AI edits it."""
+        try:
+            await self.websocket.send_json({"type": "pane_focus", "pane": pane})
+        except Exception:
+            pass
 
     async def _handle_interrupted(self) -> None:
         """Handle interruption detected by Gemini."""

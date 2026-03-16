@@ -52,20 +52,12 @@ class GeminiLiveClient:
 
     async def connect(self) -> None:
         """Open Live session and start receive loop."""
-        voice_name = self.LANGUAGE_VOICES.get(self.language, "Aoede")
-        config = types.LiveConnectConfig(
+        print(f"[Gemini] Language={self.language}")
+        config_kwargs = dict(
             response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice_name,
-                    )
-                )
-            ),
             system_instruction=types.Content(
                 parts=[types.Part(text=get_system_prompt(self.language))]
             ),
-            tools=LIVE_TOOLS,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             context_window_compression=types.ContextWindowCompressionConfig(
@@ -75,6 +67,9 @@ class GeminiLiveClient:
                 handle=self._resumption_handle
             ) if self._resumption_handle else types.SessionResumptionConfig(),
         )
+        if LIVE_TOOLS:
+            config_kwargs["tools"] = LIVE_TOOLS
+        config = types.LiveConnectConfig(**config_kwargs)
 
         try:
             print(f"[Gemini] Connecting (model={settings.gemini_live_model})...")
@@ -140,8 +135,10 @@ class GeminiLiveClient:
                     await self.on_input_transcript(sc.input_transcription.text)
 
             if sc.output_transcription and sc.output_transcription.text:
-                if self.on_transcript:
-                    await self.on_transcript("assistant", sc.output_transcription.text)
+                import re
+                clean = re.sub(r"<ctrl\d+>", "", sc.output_transcription.text).strip()
+                if clean and self.on_transcript:
+                    await self.on_transcript("assistant", clean)
 
         if response.tool_call:
             for fc in response.tool_call.function_calls:
@@ -166,12 +163,23 @@ class GeminiLiveClient:
 
     # --- Direct send methods (no queues) ---
 
+    _audio_send_count = 0
+
     async def send_audio(self, pcm_data: bytes) -> None:
         """Send PCM16 16kHz audio to Gemini."""
         if self._session and self._connected:
-            await self._session.send_realtime_input(
-                audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
-            )
+            self._audio_send_count += 1
+            if self._audio_send_count <= 3 or self._audio_send_count % 200 == 0:
+                print(f"[Gemini] send_audio #{self._audio_send_count} ({len(pcm_data)}B) session={bool(self._session)} connected={self._connected}")
+            try:
+                await self._session.send_realtime_input(
+                    audio=types.Blob(data=pcm_data, mime_type="audio/pcm")
+                )
+            except Exception as e:
+                print(f"[Gemini] send_audio ERROR: {e}")
+                self._connected = False
+        elif self._audio_send_count == 0:
+            print(f"[Gemini] send_audio SKIPPED: session={bool(self._session)} connected={self._connected}")
 
     async def send_video_frame(self, image_data: bytes) -> None:
         """Send a JPEG image frame to Gemini."""

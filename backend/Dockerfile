@@ -1,10 +1,12 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
-# System dependencies for audio processing
+# System dependencies for audio processing + Node.js for MCP servers
 RUN apt-get update && apt-get install -y \
     libsndfile1 \
     ffmpeg \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

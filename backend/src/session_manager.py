@@ -239,10 +239,10 @@ class MeetingSession:
         except Exception as e:
             print(f"[Session {self.session_id}] Failed to send audio to browser: {e}")
 
-        # Send to Simli for lip-sync video (audio from Simli is discarded)
+        # Enqueue for Simli lip-sync (non-blocking, never stalls the audio pipeline)
         if self.simli_client and self.simli_client.is_connected:
             pcm_16k = self.audio_processor.downsample_24k_to_16k(audio_data)
-            await self.simli_client.send_audio(pcm_16k)
+            await self.simli_client.send_audio(pcm_16k)  # enqueues only, does not block
 
     async def _handle_simli_video(self, frame_data: bytes) -> None:
         """Forward Simli video frames (JPEG) to browser."""

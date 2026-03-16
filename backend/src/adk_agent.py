@@ -52,24 +52,32 @@ class AdkBackgroundAgent:
             "You do NOT speak to the user directly. You ONLY use tools to manage state."
         )
 
-        # Setup Perplexity MCP Server Toolset
-        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-        from google.adk.tools.mcp_tool.mcp_session_manager import StdioServerParameters
-        import platform
+        # Setup Perplexity MCP Server Toolset (optional)
+        all_tools = list(self.tools)
+        try:
+            from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+            from google.adk.tools.mcp_tool.mcp_session_manager import StdioServerParameters
+            import platform
+            import shutil
 
-        # Use system node if available, otherwise fallback
-        node_cmd = "node"
-        if platform.system() == "Darwin" and os.path.exists("/opt/homebrew/bin/node"):
-            node_cmd = "/opt/homebrew/bin/node"
-            
-        self.mcp_toolset = McpToolset(
-            connection_params=StdioServerParameters(
-                command=node_cmd,
-                args=["src/perplexity/build/index.js"],
-            )
-        )
+            node_cmd = shutil.which("node") or "node"
+            if platform.system() == "Darwin" and os.path.exists("/opt/homebrew/bin/node"):
+                node_cmd = "/opt/homebrew/bin/node"
 
-        all_tools = self.tools + [self.mcp_toolset]
+            mcp_script = "src/perplexity/build/index.js"
+            if os.path.exists(mcp_script):
+                self.mcp_toolset = McpToolset(
+                    connection_params=StdioServerParameters(
+                        command=node_cmd,
+                        args=[mcp_script],
+                    )
+                )
+                all_tools.append(self.mcp_toolset)
+                print("[ADK] Perplexity MCP toolset loaded")
+            else:
+                print(f"[ADK] Perplexity MCP script not found at {mcp_script}, skipping")
+        except Exception as e:
+            print(f"[ADK] MCP toolset init failed, skipping: {e}")
 
         self.agent = LlmAgent(
             model=settings.gemini_flash_model,

@@ -27,6 +27,8 @@ export function MeetingRoom() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [maximizedPane, setMaximizedPane] = useState<"outline" | "graffle" | "focus" | "plan" | null>(null);
   const [isSharingScreen, setIsSharingScreen] = useState(false);
+  const [simliConnected, setSimliConnected] = useState(false);
+  const [lastVideoFrame, setLastVideoFrame] = useState<ArrayBuffer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   // Divergence state
@@ -107,6 +109,7 @@ export function MeetingRoom() {
 
       case "ready":
         console.log("[MeetingRoom] Session ready:", msg.session_id);
+        setSimliConnected(msg.simli_connected === true);
         break;
 
       case "error":
@@ -116,6 +119,10 @@ export function MeetingRoom() {
         }
         break;
     }
+  }, []);
+
+  const handleVideoFrame = useCallback((jpegData: ArrayBuffer) => {
+    setLastVideoFrame(jpegData);
   }, []);
 
   const wsUrl = useMemo(() => `${WS_URL}/${sessionId}${forceConnect ? "?force=true" : ""}`, [sessionId, forceConnect]);
@@ -133,6 +140,7 @@ export function MeetingRoom() {
     audioDeviceId: devices.selectedMic,
     speakerDeviceId: devices.selectedSpeaker,
     onMessage: handleMessage,
+    onVideoFrame: handleVideoFrame,
   });
 
   const handleForceJoin = useCallback(() => {
@@ -204,6 +212,8 @@ export function MeetingRoom() {
     setIsLockedOut(false);
     setForceConnect(false);
     setIsSpeaking(false);
+    setSimliConnected(false);
+    setLastVideoFrame(null);
   }, [isConnected, disconnect]);
 
   const handleNewSession = useCallback(() => {
@@ -222,6 +232,8 @@ export function MeetingRoom() {
     });
     setIsLockedOut(false);
     setIsSpeaking(false);
+    setSimliConnected(false);
+    setLastVideoFrame(null);
   }, [isConnected, disconnect]);
 
   const handleEditOutlineNode = useCallback((id: string, newText: string) => {
@@ -417,7 +429,7 @@ export function MeetingRoom() {
         {/* Left: Avatar + Transcript */}
         <div className="w-80 flex flex-col border-r border-[var(--color-border)]">
           <div className="h-64 p-4">
-            <AvatarPanel isConnected={isConnected} isSpeaking={isSpeaking} />
+            <AvatarPanel isConnected={isConnected} isSpeaking={isSpeaking} simliConnected={simliConnected} onVideoFrame={lastVideoFrame} />
           </div>
           <div className="flex-1 overflow-hidden">
             <TranscriptPanel entries={transcript} />
@@ -526,13 +538,14 @@ export function MeetingRoom() {
                     />
                  </div>
                  <div className="flex-1 overflow-hidden">
-                   <Plan 
-                     items={scheduleItems} 
+                   <Plan
+                     items={scheduleItems}
                      onUpdateScheduleItem={handleUpdateScheduleItem}
                      onDeleteScheduleItem={handleDeleteScheduleItem}
                      onAddScheduleItem={handleAddScheduleItem}
-                     isMaximized={maximizedPane === "plan"} 
-                     onToggleMaximize={() => setMaximizedPane("plan")} 
+                     onSetFocus={(elementId, action) => handleSetFocus("schedule", elementId, action)}
+                     isMaximized={maximizedPane === "plan"}
+                     onToggleMaximize={() => setMaximizedPane("plan")}
                    />
                  </div>
               </div>

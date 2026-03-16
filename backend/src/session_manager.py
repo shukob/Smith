@@ -26,6 +26,10 @@ class MeetingSession:
     - Browser WebSocket (audio + control messages)
     """
 
+    # Binary protocol type prefixes
+    AUDIO_FRAME = b'\x01'
+    VIDEO_FRAME = b'\x02'
+
     session_id: str
     websocket: WebSocket
     gemini_client: Optional[GeminiLiveClient] = None
@@ -68,18 +72,25 @@ class MeetingSession:
 
         # Initialize Simli avatar (optional)
         if settings.enable_simli and settings.simli_api_key and settings.simli_face_id:
-            self.simli_client = SimliAvatarClient(
+            simli = SimliAvatarClient(
                 api_key=settings.simli_api_key,
                 face_id=settings.simli_face_id,
+                on_video_frame=self._handle_simli_video,
+                on_audio_frame=self._handle_simli_audio,
             )
             try:
-                await self.simli_client.connect()
+                await simli.connect()
+                self.simli_client = simli
             except Exception as e:
                 print(f"[Session {self.session_id}] Simli connection failed: {e}")
-                self.simli_client = None
+                try:
+                    await simli.close()
+                except Exception:
+                    pass
 
         self._initialized = True
-        print(f"[Session {self.session_id}] Initialized successfully")
+        simli_status = "connected" if (self.simli_client and self.simli_client.is_connected) else "disabled"
+        print(f"[Session {self.session_id}] Initialized (simli={simli_status})")
 
     async def handle_browser_audio(self, audio_data: bytes) -> None:
         """Handle PCM16 16kHz audio from browser microphone."""
@@ -218,20 +229,31 @@ class MeetingSession:
     async def _handle_gemini_audio(self, audio_data: bytes) -> None:
         """Handle audio from Gemini (24kHz PCM).
 
-        Fork to:
-        1. Simli (downsample 24kHz → 16kHz for lip-sync)
-        2. Browser (send 24kHz directly via WebSocket)
+        Send to:
+        1. Browser directly (0x01 + 24kHz PCM) for low-latency playback
+        2. Simli (downsample 24kHz -> 16kHz) for lip-sync video only
         """
-        # Send to browser
+        # Send audio to browser with type prefix
         try:
-            await self.websocket.send_bytes(audio_data)
+            await self.websocket.send_bytes(self.AUDIO_FRAME + audio_data)
         except Exception as e:
             print(f"[Session {self.session_id}] Failed to send audio to browser: {e}")
 
-        # Send to Simli (downsampled)
+        # Send to Simli for lip-sync video (audio from Simli is discarded)
         if self.simli_client and self.simli_client.is_connected:
             pcm_16k = self.audio_processor.downsample_24k_to_16k(audio_data)
             await self.simli_client.send_audio(pcm_16k)
+
+    async def _handle_simli_video(self, frame_data: bytes) -> None:
+        """Forward Simli video frames (JPEG) to browser."""
+        try:
+            await self.websocket.send_bytes(self.VIDEO_FRAME + frame_data)
+        except Exception as e:
+            print(f"[Session {self.session_id}] Failed to send video to browser: {e}")
+
+    async def _handle_simli_audio(self, audio_data: bytes) -> None:
+        """Simli audio received -- discard (using direct Gemini audio for low latency)."""
+        pass
 
     async def _handle_transcript(self, role: str, text: str) -> None:
         """Handle transcript updates from Gemini."""

@@ -163,10 +163,10 @@ class AdkBackgroundAgent:
                         data = doc.to_dict() or {}
                         state = {
                             "user_focus": data.get("user_focus", None),
-                            "outline": data.get("outline", []),
-                            "architecture": data.get("architecture", []),
-                            "focus": data.get("focus", []),
-                            "schedule": data.get("schedule", [])
+                            "outline_nodes": data.get("outline_nodes", []),
+                            "architecture_elements": data.get("architecture_elements", []),
+                            "tasks": data.get("tasks", []),
+                            "schedule_items": data.get("schedule_items", [])
                         }
                         import json
                         current_state_str = json.dumps(state, indent=2, ensure_ascii=False)

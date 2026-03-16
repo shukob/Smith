@@ -55,7 +55,7 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
     Protocol:
     - Client sends binary frames: PCM16 16kHz mono audio
     - Client sends text frames: JSON control messages
-    - Server sends binary frames: PCM 24kHz audio from Gemini
+    - Server sends binary frames: 0x01 + PCM 24kHz audio | 0x02 + JPEG video
     - Server sends text frames: JSON events (transcripts, requirements, divergence)
 
     Control messages from client:
@@ -86,10 +86,12 @@ async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool =
         await session.initialize()
 
         # Send ready signal
+        simli_ok = session.simli_client and session.simli_client.is_connected
         await websocket.send_json({
             "type": "ready",
             "session_id": session_id,
             "speculative_engine": settings.enable_speculative_engine,
+            "simli_connected": bool(simli_ok),
         })
 
         # Main message loop

@@ -13,6 +13,7 @@ interface UseAudioStreamOptions {
   speakerDeviceId?: string;
   onMessage?: (msg: AudioStreamMessage) => void;
   onAudioReceived?: (pcmData: ArrayBuffer) => void;
+  onVideoFrame?: (jpegData: ArrayBuffer) => void;
 }
 
 /**
@@ -28,6 +29,7 @@ export function useAudioStream({
   speakerDeviceId,
   onMessage,
   onAudioReceived,
+  onVideoFrame,
 }: UseAudioStreamOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -52,9 +54,19 @@ export function useAudioStream({
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary = audio from Gemini (24kHz PCM16)
-        playAudio(event.data);
-        onAudioReceived?.(event.data);
+        const view = new Uint8Array(event.data);
+        if (view.length < 2) return;
+        const type = view[0];
+        const payload = event.data.slice(1);
+
+        if (type === 0x01) {
+          // Audio frame: 0x01 + PCM16 24kHz
+          playAudio(payload);
+          onAudioReceived?.(payload);
+        } else if (type === 0x02) {
+          // Video frame: 0x02 + JPEG
+          onVideoFrame?.(payload);
+        }
       } else {
         // Text = JSON control message
         try {
@@ -77,7 +89,7 @@ export function useAudioStream({
     };
 
     wsRef.current = ws;
-  }, [wsUrl, onMessage, onAudioReceived]);
+  }, [wsUrl, onMessage, onAudioReceived, onVideoFrame]);
 
   const startRecording = useCallback(async () => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {

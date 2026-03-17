@@ -6,6 +6,7 @@ export interface TranscriptEntry {
   role: "user" | "assistant";
   text: string;
   timestamp?: string;
+  lastUpdate?: number;
 }
 
 interface TranscriptPanelProps {
@@ -21,6 +22,18 @@ export function TranscriptPanel({ entries }: TranscriptPanelProps) {
     }
   }, [entries]);
 
+  // Group contiguous entries by role
+  const groupedEntries: TranscriptEntry[] = [];
+  for (const entry of entries) {
+    const last = groupedEntries[groupedEntries.length - 1];
+    if (last && last.role === entry.role) {
+      last.text += entry.text;
+      last.lastUpdate = entry.lastUpdate || last.lastUpdate;
+    } else {
+      groupedEntries.push({ ...entry });
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <h2 className="text-sm font-semibold text-[var(--color-text-muted)] px-4 py-2 border-b border-[var(--color-border)]">
@@ -32,7 +45,9 @@ export function TranscriptPanel({ entries }: TranscriptPanelProps) {
             Start a meeting to see the transcript...
           </p>
         )}
-        {entries.map((entry, i) => (
+        {groupedEntries
+          .filter(entry => !entry.text.trim().startsWith("[System") && !entry.text.trim().startsWith("[SYSTEM"))
+          .map((entry, i) => (
           <div
             key={i}
             className={`flex gap-2 ${entry.role === "assistant" ? "" : "justify-end"}`}

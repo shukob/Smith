@@ -1,10 +1,12 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
-# System dependencies for audio processing
+# System dependencies for audio processing + Node.js for MCP servers
 RUN apt-get update && apt-get install -y \
     libsndfile1 \
     ffmpeg \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -13,9 +15,6 @@ WORKDIR /app
 COPY requirements.txt .
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --no-cache-dir -r requirements.txt
-
-# Pre-download sentence-transformers model at build time
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Copy source code
 COPY src/ ./src/

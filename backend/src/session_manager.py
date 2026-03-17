@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket
 
 from .gemini_live_client import GeminiLiveClient
-from .simli_client import SimliAvatarClient
 from .speculative_engine import SpeculativeEngine
-from .audio_processor import AudioProcessor
+from .divergence_detector import DivergenceAction
 from .firestore_writer import FirestoreWriter
+from .adk_agent import BackgroundAgent
 from .config import settings
 
 
@@ -19,18 +19,19 @@ class MeetingSession:
 
     Orchestrates:
     - Gemini Live API (AI voice + function calling)
-    - Simli avatar (lip-sync video) [optional]
     - Speculative engine (prediction + divergence detection)
     - Firestore writer (real-time UI updates)
     - Browser WebSocket (audio + control messages)
     """
 
+    # Binary protocol type prefix
+    AUDIO_FRAME = b'\x01'
+
     session_id: str
     websocket: WebSocket
+    language: str = "ja"
     gemini_client: Optional[GeminiLiveClient] = None
-    simli_client: Optional[SimliAvatarClient] = None
     speculative_engine: Optional[SpeculativeEngine] = None
-    audio_processor: Optional[AudioProcessor] = None
     firestore_writer: Optional[FirestoreWriter] = None
     _initialized: bool = field(default=False)
     _user_transcript_buffer: str = field(default="")
@@ -40,7 +41,6 @@ class MeetingSession:
         if self._initialized:
             return
 
-        self.audio_processor = AudioProcessor()
         self.speculative_engine = SpeculativeEngine()
 
         # Initialize Firestore writer
@@ -50,6 +50,7 @@ class MeetingSession:
         # Initialize Gemini Live client
         self.gemini_client = GeminiLiveClient(
             session_id=self.session_id,
+            language=self.language,
             on_audio=self._handle_gemini_audio,
             on_transcript=self._handle_transcript,
             on_input_transcript=self._handle_input_transcript,
@@ -60,48 +61,158 @@ class MeetingSession:
         )
         await self.gemini_client.connect()
 
-        # Initialize Simli avatar (optional)
-        if settings.enable_simli and settings.simli_api_key and settings.simli_face_id:
-            self.simli_client = SimliAvatarClient(
-                api_key=settings.simli_api_key,
-                face_id=settings.simli_face_id,
-            )
-            try:
-                await self.simli_client.connect()
-            except Exception as e:
-                print(f"[Session {self.session_id}] Simli connection failed: {e}")
-                self.simli_client = None
+        # Initialize Background Agent (genai direct)
+        self.adk_agent = BackgroundAgent(
+            session_id=self.session_id, live_client=self.gemini_client,
+            language=self.language,
+            on_pane_update=self._notify_pane_focus,
+        )
+        await self.adk_agent.initialize()
+        self.adk_agent.start()
 
         self._initialized = True
-        print(f"[Session {self.session_id}] Initialized successfully")
+        print(f"[Session {self.session_id}] Initialized")
 
     async def handle_browser_audio(self, audio_data: bytes) -> None:
         """Handle PCM16 16kHz audio from browser microphone."""
         if self.gemini_client and self.gemini_client.connected:
-            # Gemini expects 16kHz - no conversion needed
             await self.gemini_client.send_audio(audio_data)
 
-    async def _handle_gemini_audio(self, audio_data: bytes) -> None:
-        """Handle audio from Gemini (24kHz PCM).
-
-        Fork to:
-        1. Simli (downsample 24kHz → 16kHz for lip-sync)
-        2. Browser (send 24kHz directly via WebSocket)
-        """
-        # Send to browser
+    async def handle_browser_video(self, base64_data: str) -> None:
+        """Handle screen share video frame from browser."""
+        import base64
         try:
-            await self.websocket.send_bytes(audio_data)
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            image_bytes = base64.b64decode(base64_data)
+            if self.gemini_client and self.gemini_client.connected:
+                await self.gemini_client.send_video_frame(image_bytes)
+        except Exception as e:
+            print(f"[Session {self.session_id}] Error handling video frame: {e}")
+
+    async def handle_browser_file(self, filename: str, mime_type: str, base64_data: str) -> None:
+        """Handle file upload from browser."""
+        import base64
+        try:
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            file_bytes = base64.b64decode(base64_data)
+            if self.gemini_client and self.gemini_client.connected:
+                await self.gemini_client.send_file_context(file_bytes, mime_type, filename)
+        except Exception as e:
+            print(f"[Session {self.session_id}] Error handling file upload: {e}")
+
+    async def handle_user_edit_outline(self, node_data: dict) -> None:
+        """Handle user direct edit to an outline node from the frontend."""
+        await self.firestore_writer.upsert_outline_node(node_data)
+        msg = (
+            f"[System: The user directly updated outline node "
+            f"'{node_data.get('id')}' to: '{node_data.get('text')}']"
+        )
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_outline(self, node_id: str) -> None:
+        """Handle user deleting an outline node from the frontend."""
+        await self.firestore_writer.delete_outline_node(node_id)
+        msg = f"[System: The user deleted outline node '{node_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_task(self, task_data: dict) -> None:
+        """Handle user direct edit to a task from the frontend."""
+        await self.firestore_writer.upsert_task(task_data)
+        msg = (
+            f"[System: The user directly updated task "
+            f"'{task_data.get('id')}' to: '{task_data.get('title')}' "
+            f"({task_data.get('status')})]"
+        )
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_task(self, task_id: str) -> None:
+        """Handle user deleting a task from the frontend."""
+        await self.firestore_writer.delete_task(task_id)
+        msg = f"[System: The user deleted task '{task_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_arch(self, element_data: dict) -> None:
+        """Handle user direct edit to an architecture element."""
+        await self.firestore_writer.upsert_architecture_element(element_data)
+        msg = f"[System: The user directly updated architecture element '{element_data.get('id')}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_arch(self, element_id: str) -> None:
+        """Handle user deleting an architecture element."""
+        await self.firestore_writer.delete_architecture_element(element_id)
+        msg = f"[System: The user deleted architecture element '{element_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_edit_schedule(self, schedule_data: dict) -> None:
+        """Handle user direct edit to a schedule item."""
+        await self.firestore_writer.upsert_schedule_item(schedule_data)
+        msg = f"[System: The user directly updated schedule item '{schedule_data.get('id')}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_delete_schedule(self, schedule_id: str) -> None:
+        """Handle user deleting a schedule item."""
+        await self.firestore_writer.delete_schedule_item(schedule_id)
+        msg = f"[System: The user deleted schedule item '{schedule_id}']"
+        print(f"[Session {self.session_id}] {msg}")
+        if self.gemini_client and self.gemini_client.connected:
+            await self.gemini_client.send_text_context(msg)
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("system", msg)
+
+    async def handle_user_set_focus(self, focus_data: dict) -> None:
+        """Store the user's current UI focus state for the Agent to read."""
+        await self.firestore_writer.set_user_focus(focus_data)
+
+    async def handle_user_edit_title(self, title: str) -> None:
+        """Handle user direct edit to the session title."""
+        await self.firestore_writer.update_title(title)
+        print(f"[Session {self.session_id}] User updated session title to: {title}")
+
+    async def handle_user_toggle_archive(self, is_archived: bool) -> None:
+        """Handle user toggling the archive status of the session."""
+        status = "archived" if is_archived else "active"
+        await self.firestore_writer.set_status(status)
+        print(f"[Session {self.session_id}] User set session status to: {status}")
+
+    async def _handle_gemini_audio(self, audio_data: bytes) -> None:
+        """Handle audio from Gemini (24kHz PCM) - send directly to browser."""
+        try:
+            await self.websocket.send_bytes(self.AUDIO_FRAME + audio_data)
         except Exception as e:
             print(f"[Session {self.session_id}] Failed to send audio to browser: {e}")
 
-        # Send to Simli (downsampled)
-        if self.simli_client and self.simli_client.is_connected:
-            pcm_16k = self.audio_processor.downsample_24k_to_16k(audio_data)
-            await self.simli_client.send_audio(pcm_16k)
-
     async def _handle_transcript(self, role: str, text: str) -> None:
         """Handle transcript updates from Gemini."""
-        # Send to browser
         try:
             await self.websocket.send_json({
                 "type": "transcript",
@@ -111,11 +222,11 @@ class MeetingSession:
         except Exception:
             pass
 
-        # Update context for speculative engine
         self.speculative_engine.update_context(f"{role}: {text}")
-
-        # Write to Firestore
         await self.firestore_writer.append_transcript(role, text)
+
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript(role, text)
 
     async def _handle_input_transcript(self, text: str) -> None:
         """Handle user's speech transcription from Gemini.
@@ -124,11 +235,9 @@ class MeetingSession:
         """
         self._user_transcript_buffer += text
 
-        # Evaluate divergence if AI is currently speaking
         if self.gemini_client.is_speaking and self.speculative_engine.active:
             result = self.speculative_engine.evaluate(self._user_transcript_buffer)
 
-            # Send divergence score to browser for UI
             try:
                 await self.websocket.send_json({
                     "type": "divergence",
@@ -140,7 +249,6 @@ class MeetingSession:
             except Exception:
                 pass
 
-            # Log to Firestore
             await self.firestore_writer.log_divergence(
                 score=result.score,
                 action=result.action.value,
@@ -148,7 +256,11 @@ class MeetingSession:
                 actual=self._user_transcript_buffer,
             )
 
-        # Also send transcript to browser
+            # Act on INTERRUPT: force Gemini to yield the floor
+            if result.action == DivergenceAction.INTERRUPT:
+                print(f"[Session {self.session_id}] Speculative INTERRUPT triggered (score={result.score:.2f})")
+                await self.gemini_client.send_interrupt()
+
         try:
             await self.websocket.send_json({
                 "type": "transcript",
@@ -158,8 +270,10 @@ class MeetingSession:
         except Exception:
             pass
 
-        # Update context
         self.speculative_engine.update_context(f"user: {text}")
+
+        if hasattr(self, 'adk_agent'):
+            self.adk_agent.append_transcript("user", text)
 
     async def _handle_function_call(
         self, call_id: str, name: str, args: dict
@@ -169,7 +283,6 @@ class MeetingSession:
 
         if name == "extract_requirement":
             await self.firestore_writer.upsert_requirement(args)
-            # Notify browser
             try:
                 await self.websocket.send_json({
                     "type": "requirement",
@@ -183,6 +296,7 @@ class MeetingSession:
             await self.firestore_writer.update_summary(
                 args.get("summary", ""),
                 args.get("topics_discussed", []),
+                args.get("title", ""),
             )
             try:
                 await self.websocket.send_json({
@@ -203,7 +317,42 @@ class MeetingSession:
                 pass
             return {"status": "clarification_requested"}
 
+        elif name == "upsert_outline_node":
+            await self.firestore_writer.upsert_outline_node(args)
+            await self._notify_pane_focus("outline")
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added outline node: {args.get('text', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_architecture_element":
+            await self.firestore_writer.upsert_architecture_element(args)
+            await self._notify_pane_focus("graffle")
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added architecture element: {args.get('label', args.get('id', ''))}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_task":
+            await self.firestore_writer.upsert_task(args)
+            await self._notify_pane_focus("focus")
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added task: {args.get('title', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
+        elif name == "upsert_schedule_item":
+            await self.firestore_writer.upsert_schedule_item(args)
+            await self._notify_pane_focus("plan")
+            if hasattr(self, 'adk_agent'):
+                self.adk_agent.append_transcript("system", f"[Live AI added schedule item: {args.get('name', '')}]")
+            return {"status": "ok", "id": args.get("id")}
+
         return {"status": "unknown_function"}
+
+    async def _notify_pane_focus(self, pane: str) -> None:
+        """Notify frontend to maximize a pane when AI edits it."""
+        try:
+            await self.websocket.send_json({"type": "pane_focus", "pane": pane})
+        except Exception:
+            pass
 
     async def _handle_interrupted(self) -> None:
         """Handle interruption detected by Gemini."""
@@ -221,12 +370,10 @@ class MeetingSession:
         """Handle AI starting to speak."""
         self._user_transcript_buffer = ""
 
-        # Start speculative predictions
         await self.speculative_engine.start_predictions(
             ai_utterance="(AI is starting to speak)"
         )
 
-        # Send predictions to browser for UI
         try:
             await self.websocket.send_json({
                 "type": "speculation_started",
@@ -263,8 +410,8 @@ class MeetingSession:
         if self.gemini_client:
             await self.gemini_client.close()
 
-        if self.simli_client:
-            await self.simli_client.close()
+        if hasattr(self, 'adk_agent'):
+            await self.adk_agent.stop()
 
         if self.firestore_writer:
             await self.firestore_writer.close()
@@ -281,7 +428,7 @@ class SessionManager:
         self._lock = asyncio.Lock()
 
     async def create_session(
-        self, session_id: str, websocket: WebSocket
+        self, session_id: str, websocket: WebSocket, language: str = "ja"
     ) -> MeetingSession:
         """Create and initialize a new meeting session."""
         async with self._lock:
@@ -291,6 +438,7 @@ class SessionManager:
             session = MeetingSession(
                 session_id=session_id,
                 websocket=websocket,
+                language=language,
             )
             self._sessions[session_id] = session
             print(f"[SessionManager] Created session: {session_id}")

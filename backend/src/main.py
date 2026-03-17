@@ -6,12 +6,15 @@ import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import firebase_admin
+from firebase_admin import auth as firebase_auth
 
 from .config import settings
 from .session_manager import SessionManager
+from .firestore_writer import FirestoreWriter
 
 
 session_manager = SessionManager()
@@ -21,12 +24,8 @@ session_manager = SessionManager()
 async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown."""
     print("[Smith] Starting up...")
-    # Pre-load sentence-transformers model (warm cache)
-    if settings.enable_speculative_engine:
-        from .divergence_detector import DivergenceDetector
-        _warmup = DivergenceDetector()
-        del _warmup
-        print("[Smith] Divergence detector model pre-loaded")
+    firebase_admin.initialize_app()
+    print("[Smith] Firebase Admin initialized")
     yield
     print("[Smith] Shutting down...")
     await session_manager.close_all()
@@ -54,13 +53,13 @@ async def health():
 
 
 @app.websocket("/ws/meeting/{session_id}")
-async def meeting_websocket(websocket: WebSocket, session_id: str):
+async def meeting_websocket(websocket: WebSocket, session_id: str, force: bool = False, token: str = Query(default=""), lang: str = Query(default="ja")):
     """WebSocket endpoint for a meeting session.
 
     Protocol:
     - Client sends binary frames: PCM16 16kHz mono audio
     - Client sends text frames: JSON control messages
-    - Server sends binary frames: PCM 24kHz audio from Gemini
+    - Server sends binary frames: 0x01 + PCM 24kHz audio | 0x02 + JPEG video
     - Server sends text frames: JSON events (transcripts, requirements, divergence)
 
     Control messages from client:
@@ -69,7 +68,38 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
     - {"type": "disconnect"}: Close session
     """
     await websocket.accept()
-    session = await session_manager.create_session(session_id, websocket)
+
+    # Verify Firebase ID token
+    if not token:
+        await websocket.send_json({"type": "error", "message": "Unauthorized: no token"})
+        await websocket.close(code=4401)
+        return
+
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+        user_uid = decoded_token["uid"]
+        print(f"[WebSocket] Authenticated user={user_uid}, session_id={session_id}")
+    except Exception as e:
+        print(f"[WebSocket] Token verification failed: {e}")
+        await websocket.send_json({"type": "error", "message": "Unauthorized: invalid token"})
+        await websocket.close(code=4401)
+        return
+
+    print(f"[WebSocket] Connected session_id={session_id}, force={force}")
+    
+    connection_id = str(uuid.uuid4())
+    writer = FirestoreWriter(session_id)
+    await writer.initialize()
+    
+    if not await writer.try_lock_session(connection_id, force=force):
+        await websocket.send_json({
+            "type": "error", 
+            "message": "Session already active"
+        })
+        await websocket.close()
+        return
+
+    session = await session_manager.create_session(session_id, websocket, language=lang)
 
     try:
         # Initialize session components
@@ -83,14 +113,23 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
         })
 
         # Main message loop
+        msg_count = 0
+        audio_bytes_total = 0
         while True:
             message = await websocket.receive()
 
             if message.get("type") == "websocket.disconnect":
                 break
 
+            msg_count += 1
+            if msg_count <= 3 or msg_count % 100 == 0:
+                print(f"[WS] msg#{msg_count} type={message.get('type', '?')} bytes={len(message.get('bytes', b''))} text={message.get('text', '')[:80] if message.get('text') else ''}")
+
             # Binary frame = audio data
             if "bytes" in message and message["bytes"]:
+                audio_bytes_total += len(message["bytes"])
+                if msg_count <= 3 or msg_count % 200 == 0:
+                    print(f"[WS] Audio: {len(message['bytes'])}B (total {audio_bytes_total}B)")
                 await session.handle_browser_audio(message["bytes"])
 
             # Text frame = JSON control message
@@ -106,6 +145,36 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
                         )
                     elif msg_type == "disconnect":
                         break
+                    elif msg_type == "video_frame":
+                        await session.handle_browser_video(data.get("data", ""))
+                    elif msg_type == "file_context":
+                        await session.handle_browser_file(
+                            data.get("filename", ""),
+                            data.get("mimeType", ""),
+                            data.get("data", "")
+                        )
+                    elif msg_type == "user_edit_outline":
+                        await session.handle_user_edit_outline(data.get("node", {}))
+                    elif msg_type == "user_delete_outline":
+                        await session.handle_user_delete_outline(data.get("id", ""))
+                    elif msg_type == "user_edit_task":
+                        await session.handle_user_edit_task(data.get("task", {}))
+                    elif msg_type == "user_delete_task":
+                        await session.handle_user_delete_task(data.get("id", ""))
+                    elif msg_type == "user_edit_arch":
+                        await session.handle_user_edit_arch(data.get("element", {}))
+                    elif msg_type == "user_delete_arch":
+                        await session.handle_user_delete_arch(data.get("id", ""))
+                    elif msg_type == "user_edit_schedule":
+                        await session.handle_user_edit_schedule(data.get("item", {}))
+                    elif msg_type == "user_delete_schedule":
+                        await session.handle_user_delete_schedule(data.get("id", ""))
+                    elif msg_type == "user_set_focus":
+                        await session.handle_user_set_focus(data.get("focus", {}))
+                    elif msg_type == "user_edit_title":
+                        await session.handle_user_edit_title(data.get("title", ""))
+                    elif msg_type == "user_toggle_archive":
+                        await session.handle_user_toggle_archive(data.get("is_archived", False))
 
                 except json.JSONDecodeError:
                     pass
@@ -115,6 +184,7 @@ async def meeting_websocket(websocket: WebSocket, session_id: str):
     except Exception as e:
         print(f"[Smith] Session error: {e}")
     finally:
+        await writer.unlock_session(connection_id)
         await session_manager.close_session(session_id)
 
 

@@ -16,7 +16,6 @@ const apis = [
   "artifactregistry.googleapis.com",
   "cloudbuild.googleapis.com",
   "firebase.googleapis.com",
-  "apphosting.googleapis.com",
 ];
 
 const enabledApis = apis.map(
@@ -57,6 +56,15 @@ const simliApiKeySecret = new gcp.secretmanager.Secret(
   "simli-api-key",
   {
     secretId: "smith-simli-api-key",
+    replication: { auto: {} },
+  },
+  { dependsOn: enabledApis }
+);
+
+const perplexityApiKeySecret = new gcp.secretmanager.Secret(
+  "perplexity-api-key",
+  {
+    secretId: "smith-perplexity-api-key",
     replication: { auto: {} },
   },
   { dependsOn: enabledApis }
@@ -138,8 +146,14 @@ const backendService = new gcp.cloudrunv2.Service(
             },
             cpuIdle: false, // Keep CPU allocated for WebSocket
           },
-          ports: [{ containerPort: 8080 }],
+          ports: {
+            containerPort: 8080,
+          },
           envs: [
+            {
+              name: "DEPLOY_TIMESTAMP",
+              value: new Date().toISOString(),
+            },
             {
               name: "GCP_PROJECT_ID",
               value: project,
@@ -157,6 +171,15 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: googleApiKeySecret.secretId,
+                  version: "1", // Force to version 1 instead of latest
+                },
+              },
+            },
+            {
+              name: "PERPLEXITY_API_KEY",
+              valueSource: {
+                secretKeyRef: {
+                  secret: perplexityApiKeySecret.secretId,
                   version: "latest",
                 },
               },
@@ -166,7 +189,7 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: simliApiKeySecret.secretId,
-                  version: "latest",
+                  version: "1",
                 },
               },
             },
@@ -175,7 +198,7 @@ const backendService = new gcp.cloudrunv2.Service(
               valueSource: {
                 secretKeyRef: {
                   secret: simliFaceIdSecret.secretId,
-                  version: "latest",
+                  version: "1",
                 },
               },
             },
@@ -208,7 +231,7 @@ new gcp.cloudrunv2.ServiceIamMember("smith-backend-public", {
 // ============================================================
 // Outputs
 // ============================================================
-export const backendUrl = backendService.uris;
+export const backendUrl = backendService.uri;
 export const artifactRegistryUrl = pulumi.interpolate`${region}-docker.pkg.dev/${project}/smith`;
 export const firestoreDatabase = firestoreDb.name;
 export const serviceAccountEmail = serviceAccount.email;
@@ -223,4 +246,5 @@ docker push ${region}-docker.pkg.dev/${project}/smith/backend
 echo -n "YOUR_GEMINI_KEY" | gcloud secrets versions add smith-google-api-key --data-file=-
 echo -n "YOUR_SIMLI_KEY" | gcloud secrets versions add smith-simli-api-key --data-file=-
 echo -n "YOUR_FACE_ID" | gcloud secrets versions add smith-simli-face-id --data-file=-
+echo -n "YOUR_PERPLEXITY_KEY" | gcloud secrets versions add smith-perplexity-api-key --data-file=-
 `;

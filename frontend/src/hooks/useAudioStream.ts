@@ -9,8 +9,11 @@ export interface AudioStreamMessage {
 
 interface UseAudioStreamOptions {
   wsUrl: string;
+  audioDeviceId?: string;
+  speakerDeviceId?: string;
   onMessage?: (msg: AudioStreamMessage) => void;
   onAudioReceived?: (pcmData: ArrayBuffer) => void;
+  onVideoFrame?: (jpegData: ArrayBuffer) => void;
 }
 
 /**
@@ -22,8 +25,11 @@ interface UseAudioStreamOptions {
  */
 export function useAudioStream({
   wsUrl,
+  audioDeviceId,
+  speakerDeviceId,
   onMessage,
   onAudioReceived,
+  onVideoFrame,
 }: UseAudioStreamOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -48,9 +54,19 @@ export function useAudioStream({
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary = audio from Gemini (24kHz PCM16)
-        playAudio(event.data);
-        onAudioReceived?.(event.data);
+        const view = new Uint8Array(event.data);
+        if (view.length < 2) return;
+        const type = view[0];
+        const payload = event.data.slice(1);
+
+        if (type === 0x01) {
+          // Audio frame: 0x01 + PCM16 24kHz
+          playAudio(payload);
+          onAudioReceived?.(payload);
+        } else if (type === 0x02) {
+          // Video frame: 0x02 + JPEG
+          onVideoFrame?.(payload);
+        }
       } else {
         // Text = JSON control message
         try {
@@ -73,7 +89,7 @@ export function useAudioStream({
     };
 
     wsRef.current = ws;
-  }, [wsUrl, onMessage, onAudioReceived]);
+  }, [wsUrl, onMessage, onAudioReceived, onVideoFrame]);
 
   const startRecording = useCallback(async () => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -85,6 +101,7 @@ export function useAudioStream({
       // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          deviceId: audioDeviceId && audioDeviceId !== "default" ? { exact: audioDeviceId } : undefined,
           sampleRate: 48000,
           channelCount: 1,
           echoCancellation: true,
@@ -120,11 +137,11 @@ export function useAudioStream({
       audioContextRef.current = audioCtx;
       workletNodeRef.current = workletNode;
       setIsRecording(true);
-      console.log("[AudioStream] Recording started");
+      console.log("[AudioStream] Recording started with mic:", audioDeviceId || "default");
     } catch (err) {
       console.error("[AudioStream] Failed to start recording:", err);
     }
-  }, []);
+  }, [audioDeviceId]);
 
   const stopRecording = useCallback(() => {
     if (workletNodeRef.current) {
@@ -187,6 +204,15 @@ export function useAudioStream({
     source.start(startTime);
     nextPlayTimeRef.current = startTime + audioBuffer.duration;
   }, []);
+
+  useEffect(() => {
+    if (playbackContextRef.current && speakerDeviceId && speakerDeviceId !== "default") {
+      if ("setSinkId" in playbackContextRef.current) {
+        (playbackContextRef.current as any).setSinkId(speakerDeviceId).catch(console.error);
+        console.log("[AudioStream] Output speaker set to:", speakerDeviceId);
+      }
+    }
+  }, [speakerDeviceId]);
 
   // Cleanup on unmount
   useEffect(() => {

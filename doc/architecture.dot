@@ -1,0 +1,85 @@
+digraph Smith {
+    rankdir=TB;
+    bgcolor="#0d1117";
+    fontname="Helvetica Neue";
+    node [fontname="Helvetica Neue", fontsize=11, style="filled,rounded", shape=box, color="#30363d", fontcolor="white"];
+    edge [fontname="Helvetica Neue", fontsize=9, color="#8b949e", fontcolor="#8b949e"];
+
+    // Title
+    labelloc="t";
+    label=<<FONT FACE="Helvetica Neue" POINT-SIZE="20" COLOR="white"><B>Smith - Architecture</B></FONT><BR/><FONT FACE="Helvetica Neue" POINT-SIZE="12" COLOR="#8b949e">AI Technical Consultant with Real-time Dashboard</FONT>>;
+
+    // Subgraph: Browser
+    subgraph cluster_browser {
+        label=<<FONT COLOR="white"><B>Browser (Next.js + Firebase Auth)</B></FONT>>;
+        style="dashed,rounded";
+        color="#58a6ff";
+        fontcolor="white";
+        bgcolor="#161b22";
+
+        mic [label="Microphone\n(PCM16 16kHz)", fillcolor="#1f6feb", shape=ellipse];
+        speaker [label="Speaker\n(PCM16 24kHz)", fillcolor="#1f6feb", shape=ellipse];
+        ui [label=<<B>4-Pane Dashboard</B><BR/>Outline | Architecture<BR/>Tasks | Schedule>, fillcolor="#238636", fontcolor="white"];
+        transcript_ui [label="Transcript\nPanel", fillcolor="#238636", fontcolor="white"];
+    }
+
+    // Subgraph: Cloud Run
+    subgraph cluster_cloudrun {
+        label=<<FONT COLOR="white"><B>Cloud Run (FastAPI, Python)</B></FONT>>;
+        style="rounded";
+        color="#f78166";
+        fontcolor="white";
+        bgcolor="#161b22";
+
+        ws [label="WebSocket\nEndpoint", fillcolor="#6e40c9", fontcolor="white"];
+
+        subgraph cluster_session {
+            label=<<FONT COLOR="#8b949e">MeetingSession</FONT>>;
+            style="dashed";
+            color="#30363d";
+            bgcolor="#0d1117";
+
+            gemini_client [label=<<B>GeminiLiveClient</B><BR/><FONT POINT-SIZE="9">Voice I/O + Function Calling</FONT><BR/><FONT POINT-SIZE="9">(3 tools)</FONT>>, fillcolor="#1a7f37", fontcolor="white"];
+            bg_agent [label=<<B>BackgroundAgent</B><BR/><FONT POINT-SIZE="9">Dashboard inference</FONT><BR/><FONT POINT-SIZE="9">(2s debounce, 5 tools)</FONT>>, fillcolor="#8957e5", fontcolor="white"];
+            fw [label="FirestoreWriter\n(Transaction-safe)", fillcolor="#f78166", fontcolor="white"];
+        }
+    }
+
+    // Subgraph: Google Cloud / Gemini
+    subgraph cluster_gcp {
+        label=<<FONT COLOR="white"><B>Google Cloud Platform</B></FONT>>;
+        style="rounded";
+        color="#4285f4";
+        fontcolor="white";
+        bgcolor="#161b22";
+
+        gemini_live [label=<<B>Gemini Live API</B><BR/><FONT POINT-SIZE="9">gemini-2.5-flash-native-audio</FONT><BR/><FONT POINT-SIZE="9">-preview-12-2025</FONT>>, fillcolor="#4285f4", fontcolor="white"];
+        gemini_flash [label=<<B>Gemini Flash</B><BR/><FONT POINT-SIZE="9">gemini-2.5-flash</FONT><BR/><FONT POINT-SIZE="9">(Text generation + tools)</FONT>>, fillcolor="#4285f4", fontcolor="white"];
+        firestore [label=<<B>Cloud Firestore</B><BR/><FONT POINT-SIZE="9">Real-time NoSQL</FONT><BR/><FONT POINT-SIZE="9">(onSnapshot sync)</FONT>>, fillcolor="#f9ab00", fontcolor="#1a1a1a"];
+        firebase_auth [label=<<B>Firebase Auth</B><BR/><FONT POINT-SIZE="9">Google OAuth</FONT>>, fillcolor="#f9ab00", fontcolor="#1a1a1a"];
+        firebase_hosting [label=<<B>Firebase Hosting</B><BR/><FONT POINT-SIZE="9">Next.js static</FONT>>, fillcolor="#f9ab00", fontcolor="#1a1a1a"];
+    }
+
+    // Edges: Browser <-> Cloud Run
+    mic -> ws [label="PCM16 audio\n(WebSocket binary)", color="#58a6ff", fontcolor="#58a6ff"];
+    ws -> speaker [label="PCM24 audio\n(0x01 + bytes)", color="#58a6ff", fontcolor="#58a6ff"];
+    ws -> transcript_ui [label="JSON transcripts", style=dashed, color="#8b949e"];
+
+    // Edges: Cloud Run internal
+    ws -> gemini_client [label="audio relay"];
+    gemini_client -> fw [label="tool results"];
+    gemini_client -> bg_agent [label="transcript\nfeed", style=dashed];
+    bg_agent -> fw [label="inferred\nupdates"];
+
+    // Edges: Cloud Run <-> GCP
+    gemini_client -> gemini_live [label="WebSocket\n(bidirectional audio)", color="#4285f4", fontcolor="#4285f4", style=bold];
+    bg_agent -> gemini_flash [label="analyze transcript\n+ function calling", color="#8957e5", fontcolor="#8957e5"];
+    fw -> firestore [label="upsert\n(transactions)", color="#f9ab00", fontcolor="#f9ab00"];
+
+    // Edges: Firestore -> Browser (real-time sync)
+    firestore -> ui [label="onSnapshot\n(real-time sync)", color="#f9ab00", fontcolor="#f9ab00", style=bold];
+
+    // Auth flow
+    firebase_auth -> ws [label="ID token\nverification", style=dashed, color="#f9ab00", fontcolor="#f9ab00"];
+    firebase_hosting -> mic [label="serves app", style=dotted, color="#8b949e"];
+}

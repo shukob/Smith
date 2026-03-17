@@ -1,6 +1,6 @@
 # Smith - AI Technical Consultant with Real-time Dashboard
 
-![Screenshot](doc/screenshot.png)
+[![Demo Video](doc/screenshot.png)](https://vimeo.com/1174199950)
 
 > An AI technical consultant that conducts requirements definition and architecture design meetings through natural voice conversation. As you speak, Smith automatically generates and updates a 4-pane dashboard: requirements outline, architecture diagram, task board, and project timeline.
 

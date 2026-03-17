@@ -23,7 +23,7 @@ class Settings:
     speculation_interval_sec: float = 2.0
     divergence_threshold_ignore: float = 0.3
     divergence_threshold_interrupt: float = 0.6
-    enable_speculative_engine: bool = True
+    enable_speculative_engine: bool = False
 
     # Server
     port: int = field(default_factory=lambda: int(os.environ.get("PORT", "8080")))

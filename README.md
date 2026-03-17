@@ -1,55 +1,71 @@
-# Smith - Speculative Turn-taking S2S Technical Consultant Agent
+# Smith - AI Technical Consultant with Real-time Dashboard
 
-> An AI technical consultant that conducts requirements definition meetings through natural voice conversation. Features a novel **Speculative Turn-taking** algorithm that predicts what users will say next, enabling intelligent interruption handling that distinguishes backchannels from real disagreements.
+![Screenshot](doc/screenshot.png)
+
+> An AI technical consultant that conducts requirements definition and architecture design meetings through natural voice conversation. As you speak, Smith automatically generates and updates a 4-pane dashboard: requirements outline, architecture diagram, task board, and project timeline.
 
 Built for the [Gemini Live Agent Challenge](https://geminiliveagentchallenge.devpost.com/) hackathon.
 
-## What Makes This Different
+## What It Does
 
-Traditional voice AI uses simple volume-based VAD (Voice Activity Detection) to detect interruptions - any sound stops the AI. Smith uses **Speculative Turn-taking**:
+Smith is your AI architect co-pilot for technical meetings. Start a voice conversation, discuss your project, and watch as structured artifacts are generated in real-time:
 
-1. **While AI speaks**: A background task predicts what the user might say next (especially disagreements) using Gemini Flash, and pre-computes semantic embeddings
-2. **When user speaks during AI output**: The actual speech is embedded and compared against predictions via cosine distance in real-time (~10ms)
-3. **Intelligent decision**:
-   - Low divergence (< 0.3) → Backchannel ("うんうん", "I see") → AI continues speaking
-   - High divergence (> 0.6) → Real interruption/disagreement → AI yields the floor
-
-This approach detects interruptions from **meaning**, not sound — even soft-spoken disagreements trigger a yield, while loud agreement doesn't.
+1. **Voice Conversation**: Speak naturally with an expert IT architect who asks clarifying questions, identifies risks, and proposes solutions
+2. **4-Pane Auto-Generation**: The dashboard populates as you talk:
+   - **Outline**: Hierarchical requirements, goals, and assumptions
+   - **Architecture**: System component diagram with nodes and connections
+   - **Tasks**: Kanban board (todo / in_progress / done)
+   - **Schedule**: Gantt chart with milestones and dependencies
+3. **Bidirectional Editing**: Edit any pane manually — the AI notices and adapts
+4. **Bilingual**: Switch between Japanese and English mid-session
 
 ## Architecture
 
+![Architecture](doc/architecture.png)
+
+### Three Parallel Agents
+
+| Agent | Model | Role |
+|-------|-------|------|
+| **GeminiLiveClient** | gemini-2.5-flash-native-audio-preview-12-2025 | Real-time voice conversation + function calling |
+| **BackgroundAgent** | gemini-2.5-flash | Analyzes transcript, infers dashboard updates (2s debounce) |
+| **FirestoreWriter** | Cloud Firestore | Transaction-safe real-time sync to frontend |
+
+### Data Flow
+
 ```
-Browser (Next.js / Firebase App Hosting)
-  │ WebSocket (PCM16 16kHz + JSON)
+Browser (Next.js)
+  │ WebSocket (PCM16 16kHz audio + JSON)
   ▼
-Cloud Run (Python/FastAPI, Docker)
+Cloud Run (FastAPI, Python)
   ├── GeminiLiveClient ──WebSocket──▶ Gemini Live API
-  │     Audio I/O + Function Calling      (gemini-2.5-flash-native-audio-preview)
-  ├── SpeculativeEngine ──API call──▶ Gemini Flash (text prediction)
-  │     └── DivergenceDetector            (sentence-transformers, ~10ms)
-  ├── SimliClient ──WebSocket──▶ Simli API (avatar lip-sync)
-  ├── AudioProcessor                      (24kHz↔16kHz PCM resampling)
+  │     Voice I/O + Function Calling      (native audio model)
+  ├── BackgroundAgent ──API call──▶ Gemini Flash
+  │     Transcript analysis → Dashboard updates
   └── FirestoreWriter ──▶ Cloud Firestore
                               ▲
-Browser listens via onSnapshot ─┘
+Browser listens via onSnapshot ─┘  (real-time 4-pane sync)
 ```
 
 ### Key Technologies
+
 - **Gemini Live API** (`gemini-2.5-flash-native-audio-preview-12-2025`): Full-duplex audio I/O with function calling
-- **Google GenAI SDK** (`google-genai`): Python SDK for Gemini APIs
-- **Cloud Run**: WebSocket-capable serverless container (2GB RAM, 2 vCPU)
-- **Cloud Firestore**: Real-time document sync for requirements/summary UI
-- **Simli**: Avatar lip-sync from audio stream
-- **sentence-transformers** (`all-MiniLM-L6-v2`): Lightweight embedding model for divergence detection
+- **Gemini Flash** (`gemini-2.5-flash`): Background transcript analysis and dashboard inference
+- **Google GenAI SDK** (`google-genai`): Python SDK for all Gemini APIs
+- **Cloud Run**: WebSocket-capable serverless container (4GB RAM)
+- **Cloud Firestore**: Real-time document sync with transaction-safe upserts
+- **Firebase Auth**: Google OAuth with ID token verification
+- **Next.js 15 + React 19**: Frontend with @xyflow/react (diagrams), gantt-task-react (timeline), dnd-kit (drag-and-drop)
 
 ## Features
 
-- **Voice Meeting with AI Consultant**: Discuss system requirements naturally; AI asks clarifying questions, identifies risks, and facilitates discussion
-- **Real-time Requirements Extraction**: Gemini function calling extracts requirements as you speak — they appear in the UI instantly via Firestore
-- **Speculative Divergence Meter**: Visual indicator showing the semantic distance between predicted and actual user speech
-- **Ablation Toggle**: Switch speculative engine ON/OFF to compare intelligent vs basic interruption handling
-- **Multi-participant Support**: Single microphone, multiple speakers — AI tracks conversation context
-- **Bilingual**: Japanese and English support
+- **Voice Meeting with AI Consultant**: Discuss system requirements naturally; AI asks clarifying questions, identifies risks
+- **Real-time Dashboard Generation**: 4 panes auto-populate from conversation via Gemini function calling + BackgroundAgent inference
+- **Auto-Focus Panes**: When the AI edits a pane, it maximizes automatically for 4 seconds
+- **Session Persistence**: Resume previous meetings with full context restoration
+- **Resizable Layout**: Drag to resize the chat panel (saved to localStorage)
+- **Language Toggle**: JP/EN switch changes AI voice and dashboard output language
+- **Firebase Auth**: Google login with secure WebSocket token verification
 
 ## Project Structure
 
@@ -59,120 +75,149 @@ Smith/
 │   ├── src/
 │   │   ├── main.py             # FastAPI WebSocket endpoint
 │   │   ├── gemini_live_client.py   # Gemini Live API wrapper
-│   │   ├── speculative_engine.py   # Core innovation
-│   │   ├── divergence_detector.py  # Embedding comparison
 │   │   ├── session_manager.py  # Session orchestration
-│   │   ├── firestore_writer.py # Real-time Firestore updates
+│   │   ├── adk_agent.py        # Background agent (Gemini Flash)
+│   │   ├── firestore_writer.py # Transaction-safe Firestore sync
 │   │   ├── function_tools.py   # Gemini function declarations
-│   │   ├── system_prompt.py    # Consultant prompt
-│   │   ├── audio_processor.py  # PCM resampling
-│   │   └── simli_client.py     # Simli avatar client
+│   │   ├── system_prompt.py    # Bilingual consultant prompt
+│   │   └── config.py           # Settings
 │   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/                   # Next.js (Firebase App Hosting)
+├── frontend/                   # Next.js (Firebase Hosting)
 │   └── src/
-│       ├── components/         # MeetingRoom, Requirements, Divergence, etc.
-│       ├── hooks/              # useAudioStream, useFirestore
+│       ├── components/         # MeetingRoom, Outline, Graffle, Focus, Plan
+│       ├── hooks/              # useAudioStream, useFirestore, useDevices
+│       ├── contexts/           # AuthContext (Firebase Auth)
 │       └── lib/                # Firebase config
-└── infra/                      # Pulumi IaC (TypeScript)
-    └── index.ts                # GCP resources definition
+└── doc/                        # Architecture diagrams, demo scripts
 ```
 
 ## Setup & Deployment
 
 ### Prerequisites
 - Google Cloud project with billing enabled
-- [Pulumi CLI](https://www.pulumi.com/docs/install/) installed
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install) authenticated
+- [Firebase CLI](https://firebase.google.com/docs/cli) installed (`npm install -g firebase-tools`)
+- Docker Desktop installed
 - Node.js 20+ and Python 3.12+
 - Gemini API key (from [Google AI Studio](https://aistudio.google.com/))
-- Simli API key and Face ID (from [Simli](https://simli.com/))
 
-### 1. Configuration
-
-Create a `.env` file in the project root:
+### 1. GCP Setup
 
 ```bash
-cp .env.example .env
+# Set your project
+export PROJECT_ID=your-project-id
+export REGION=asia-northeast1
+
+# Enable required APIs
+gcloud services enable \
+  run.googleapis.com \
+  firestore.googleapis.com \
+  artifactregistry.googleapis.com \
+  identitytoolkit.googleapis.com \
+  secretmanager.googleapis.com \
+  --project=$PROJECT_ID
+
+# Create Artifact Registry repository
+gcloud artifacts repositories create smith \
+  --repository-format=docker \
+  --location=$REGION \
+  --project=$PROJECT_ID
+
+# Create Firestore database (if not exists)
+gcloud firestore databases create --location=$REGION --project=$PROJECT_ID
+
+# Store Gemini API key in Secret Manager
+echo -n "your-gemini-api-key" | gcloud secrets create google-api-key \
+  --data-file=- --project=$PROJECT_ID
+
+# Configure Docker auth
+gcloud auth configure-docker $REGION-docker.pkg.dev
 ```
 
-Edit the `.env` file with your configuration:
-- `GCP_PROJECT`: Your Google Cloud Project ID
-- `GCP_REGION`: Target region (default: us-central1)
-- `GEMINI_KEY`: Your Gemini API Key
-- `SIMLI_KEY`: Your Simli API Key
-- `SIMLI_FACE_ID`: Your Simli Face ID
-
-### 2. Deploy Infrastructure & Backend
-
-Run the automated deployment script from the project root. This will automatically set up the GCP infrastructure via Pulumi, store your secrets, and deploy the Cloud Run backend service.
+### 2. Deploy Backend
 
 ```bash
-./scripts/deploy.sh
+# Build and push Docker image
+docker build --platform linux/amd64 \
+  -t $REGION-docker.pkg.dev/$PROJECT_ID/smith/backend:latest \
+  ./backend
+
+docker push $REGION-docker.pkg.dev/$PROJECT_ID/smith/backend:latest
+
+# Deploy to Cloud Run
+gcloud run deploy smith-backend \
+  --project=$PROJECT_ID \
+  --region=$REGION \
+  --image=$REGION-docker.pkg.dev/$PROJECT_ID/smith/backend:latest \
+  --allow-unauthenticated \
+  --memory=4Gi \
+  --concurrency=80 \
+  --set-secrets=GOOGLE_API_KEY=google-api-key:latest \
+  --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID
 ```
 
-### 3. Deploy Frontend
+### 3. Firebase Setup
+
+```bash
+# Initialize Firebase project (link to existing GCP project)
+firebase login
+firebase projects:addinitialize --project $PROJECT_ID
+
+# Enable Google sign-in in Firebase Console:
+# Firebase Console > Authentication > Sign-in method > Google > Enable
+```
+
+### 4. Deploy Frontend
 
 ```bash
 cd frontend
+
+# Install dependencies
 npm install
 
-# Set environment variables
-cp .env.example .env.local
-# Edit .env.local and set NEXT_PUBLIC_BACKEND_URL to your newly deployed Cloud Run URL
+# Configure environment
+cat > .env.local << EOF
+NEXT_PUBLIC_BACKEND_WS_URL=wss://smith-backend-XXXXX.$REGION.run.app/ws/meeting
+NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$PROJECT_ID.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=$PROJECT_ID
+EOF
 
-# Deploy via Firebase App Hosting
-firebase init apphosting
-firebase apphosting:backends:create
+# Build and deploy
+npm run build
+firebase deploy --only hosting --project=$PROJECT_ID
 ```
 
 ### 5. Local Development
 
 ```bash
-# Backend
+# Backend (terminal 1)
 cd backend
 pip install -r requirements.txt
-GOOGLE_API_KEY=your_key python -m src.main
+GOOGLE_API_KEY=your_key GCP_PROJECT_ID=your_project python -m src.main
+# Runs on http://localhost:8080
 
-# Frontend (in another terminal)
+# Frontend (terminal 2)
 cd frontend
+# Set NEXT_PUBLIC_BACKEND_WS_URL=ws://localhost:8080/ws/meeting in .env.local
 npm run dev
+# Runs on http://localhost:3000
 ```
 
-## The Speculative Turn-taking Algorithm
+## How It Works
 
-### Problem
-Traditional S2S systems use Volume-based VAD: any sound above a threshold stops the AI. This causes false interruptions from backchannels ("うんうん", "I see") and misses soft-spoken disagreements.
+### Hybrid Architecture: Live + Background
 
-### Solution: Predict, Embed, Compare
+**Gemini Live** handles the voice conversation with 3 function tools (extract_requirement, update_summary, ask_clarification). When the user explicitly mentions something, the AI captures it immediately.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ AI Speaking Phase                                         │
-│                                                          │
-│  1. Gemini Flash predicts user responses (~500ms, async) │
-│  2. Predictions embedded via MiniLM-L6-v2 (~10ms each)  │
-│  3. Embeddings cached in memory                          │
-└──────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────────┐
-│ User Starts Speaking During AI Output                     │
-│                                                          │
-│  4. Gemini input_transcription → partial text             │
-│  5. Partial text embedded (~10ms)                         │
-│  6. Cosine distance vs prediction embeddings              │
-│     ├─ < 0.3 → IGNORE (backchannel)                      │
-│     ├─ 0.3-0.6 → MONITOR (wait for more tokens)          │
-│     └─ > 0.6 → INTERRUPT (real disagreement)              │
-└──────────────────────────────────────────────────────────┘
-```
+**BackgroundAgent** runs in parallel with a 2-second debounce. It reads the latest transcript, fetches the current dashboard state from Firestore, and uses Gemini Flash to infer what should be added or updated across all 4 panes. This handles implicit context — things the user discussed but didn't explicitly ask to be captured.
 
-### Why This Is Novel
-- **Not keyword matching** (1st gen): Works across languages and phrasings
-- **Not VAD-based** (2nd gen): Detects meaning, not volume
-- **Not E2E full-duplex** (3rd gen): Adds intelligence layer on top of existing APIs
-- **Sub-100ms latency**: Prediction is pre-computed; only the fast embedding comparison runs in real-time
+Both agents write to Firestore using transactions, ensuring no race conditions when concurrent updates occur.
+
+### Real-time Sync
+
+The frontend uses Firestore's `onSnapshot` listeners for all 4 panes. Any change from either the Live API, BackgroundAgent, or user manual edits is reflected instantly across all connected clients.
 
 ## License
 

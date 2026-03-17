@@ -1,10 +1,10 @@
 # Smith - DevPost Submission Reference
 
 ## Project Name
-**Smith - Speculative Turn-taking S2S Technical Consultant**
+**Smith - AI Technical Consultant with Real-time Dashboard**
 
 ## Tagline (short)
-AI architect that conducts voice meetings with semantic interruption detection and auto-generates structured project artifacts in real-time.
+AI architect that conducts voice meetings and auto-generates structured project artifacts — requirements, architecture diagrams, tasks, and timelines — in real-time.
 
 ## URL
 https://cogent-silicon-489609-d0.web.app/
@@ -18,23 +18,24 @@ https://github.com/anthropics/smith (or wherever hosted)
 
 Smith is an AI technical consultant that conducts requirements definition and architecture design meetings through natural voice conversation. As you discuss your project, Smith:
 
-1. **Listens and responds as a senior IT architect** - concise, expert-level guidance
-2. **Detects interruptions semantically** (Speculative Turn-taking) - distinguishes "uh-huh" from real disagreements using embedding cosine distance, not just volume
-3. **Auto-generates 4 structured dashboards** in real-time:
+1. **Listens and responds as a senior IT architect** — concise, expert-level guidance with clarifying questions and risk identification
+2. **Auto-generates 4 structured dashboards** in real-time:
    - **Outline**: Hierarchical requirements/goals/assumptions tree
    - **Architecture**: System component diagram (nodes + edges)
    - **Tasks**: Kanban board (todo/in_progress/done)
    - **Schedule**: Gantt chart with milestones and dependencies
-4. **Supports bidirectional editing** - users can manually edit any pane; the AI notices and adapts
-5. **Bilingual** - Japanese and English, switchable mid-session
+3. **Supports bidirectional co-editing** — users can manually edit any pane; the AI notices and adapts
+4. **Bilingual** — Japanese and English, switchable mid-session
 
 ---
 
 ## Inspiration
 
-Every voice AI suffers from the same UX problem: **false interruptions**. Say "uh-huh" while the AI talks, and it stops mid-sentence. Whisper a genuine objection, and it doesn't notice. We asked: what if the AI could predict what you're about to say, and only yield the floor when you actually disagree?
+Designing software architecture is hard. It takes years of experience to know which components to choose, how they connect, and what trade-offs matter. For most developers — especially beginners — it's overwhelming.
 
-Traditional approaches use volume-based VAD (Voice Activity Detection). Smith introduces **Speculative Turn-taking** - a semantic layer that predicts, embeds, and compares in real-time.
+Meetings are where architecture decisions happen, but the output is unstructured: notes in docs, diagrams in someone's head, tasks scattered across chat threads.
+
+We asked: what if you could just talk about your idea, and have a senior architect guide you through the process — visually, interactively, in real-time? And what if the structured output could then be fed directly into a coding agent to start building?
 
 ---
 
@@ -48,92 +49,71 @@ Browser (Next.js + Firebase Auth)
   v
 Cloud Run (FastAPI, Python)
   |-- GeminiLiveClient --> Gemini Live API (native audio)
-  |     Voice I/O + 7 Function Tools
-  |-- SpeculativeEngine --> Gemini Flash (predictions)
-  |     DivergenceDetector (Gemini Embeddings, cosine distance)
+  |     Voice I/O + Function Calling (3 tools)
   |-- BackgroundAgent --> Gemini Flash (dashboard inference)
-  |     Event-driven, 2s debounce
-  |-- FirestoreWriter --> Cloud Firestore
+  |     Event-driven, 2s debounce, 5 tools
+  |-- FirestoreWriter --> Cloud Firestore (transaction-safe)
   v                          ^
 Browser listens via onSnapshot (real-time sync)
 ```
 
-### Speculative Turn-taking Algorithm
-
-```
-AI Speaking Phase:
-  1. Gemini Flash predicts likely user responses (~500ms, async)
-  2. Predictions embedded via Gemini Embeddings (~10ms)
-  3. Embeddings cached in memory
-
-User Speaks During AI Output:
-  4. input_transcription -> partial text
-  5. Partial text embedded (~10ms)
-  6. Cosine distance vs prediction embeddings:
-     < 0.3 -> IGNORE (backchannel: "uh-huh", "I see")
-     0.3-0.6 -> MONITOR (ambiguous, wait for more tokens)
-     > 0.6 -> INTERRUPT (real disagreement -> AI yields floor)
-```
-
-**Total decision latency: ~10-15ms** (prediction is pre-computed; only fast embedding comparison runs in real-time).
-
-### Three Parallel Agents
+### Two Parallel Agents
 
 | Agent | Model | Role |
 |-------|-------|------|
-| GeminiLiveClient | gemini-2.5-flash-native-audio-preview-12-2025 | Voice conversation + function calling (7 tools) |
-| SpeculativeEngine | gemini-2.5-flash + gemini-embedding-2-preview | Prediction + semantic divergence detection |
-| BackgroundAgent | gemini-2.5-flash | Infers implicit context, updates dashboard (event-driven, 2s debounce) |
+| GeminiLiveClient | gemini-2.5-flash-native-audio-preview-12-2025 | Real-time voice conversation + function calling |
+| BackgroundAgent | gemini-2.5-flash | Analyzes transcript, infers dashboard updates (2s debounce) |
 
 ### Tech Stack
 
 **Backend**: Python 3.14, FastAPI, google-genai SDK, firebase-admin, Cloud Run (4GB RAM)
 **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS 4, @xyflow/react (architecture diagram), gantt-task-react (Gantt chart), dnd-kit (drag-and-drop)
 **Infrastructure**: GCP Cloud Run, Cloud Firestore (transaction-safe upserts), Firebase Auth (Google OAuth), Firebase Hosting
-**AI/ML**: Gemini Live API, Gemini Flash, Gemini Embeddings, scipy (cosine distance)
+**AI**: Gemini Live API, Gemini Flash
 
 ---
 
 ## Challenges we ran into
 
-1. **Gemini Live native audio + tools**: The model requires at least 1 tool declaration to produce audio responses (0 tools = complete silence). With 7+ tools, it occasionally outputs `<ctrl46>` control characters instead of speech. We found 3-7 tools to be the sweet spot and added a regex filter for control characters.
+1. **Gemini Live native audio + tools**: The model requires at least 1 tool declaration to produce audio responses (0 tools = complete silence). We found 3 tools to be the stability sweet spot.
 
 2. **Speech-to-text spacing**: Gemini's output transcription arrives as space-less chunks ("NoProbleme.WhatAreYour"). Fixed by adding spaces between transcript segments on the frontend.
 
-3. **Race conditions on dashboard edits**: Three concurrent writers (user, Live API, Background Agent) can collide on the same Firestore array. Solved with Firestore transactions (read-modify-write atomicity with automatic retry).
+3. **Race conditions on dashboard edits**: Two concurrent writers (user edits, Background Agent) can collide on the same Firestore array. Solved with Firestore transactions (read-modify-write atomicity with automatic retry).
 
 4. **WebSocket + Cloud Run concurrency**: Initially set `containerConcurrency: 1`, which meant each WebSocket session locked an entire instance. Changed to 80 to allow multiple sessions per instance.
 
-5. **Token expiration during long meetings**: Firebase ID tokens expire after 1 hour. Added token refresh logic in the frontend auto-connect flow.
+5. **Session persistence**: Reconnecting to a session was overwriting all data. Fixed by checking if the Firestore document exists before initializing, and restoring context for the Background Agent.
 
 ---
 
 ## Accomplishments that we're proud of
 
-- **Speculative Turn-taking works**: Sub-100ms semantic interruption detection that distinguishes backchannels from real disagreements
 - **4-pane auto-generation**: Speak about your system and watch architecture diagrams, task boards, and timelines populate in real-time
 - **Hybrid architecture**: Gemini Live handles explicit requests instantly; Background Agent infers implicit context with 2-second delay
-- **Bilingual voice switching**: JP/EN toggle changes voice, system prompt, and dashboard output language
+- **True co-editing**: Users can edit any pane manually, and the AI sees the changes and adapts its conversation
 - **Auto-maximize panes**: When AI edits a pane, it automatically maximizes for 4 seconds so users see the change
+- **Bilingual voice switching**: JP/EN toggle changes AI voice and dashboard output language
+- **Session resume**: Reconnect to a previous meeting with full context restoration
 
 ---
 
 ## What we learned
 
-- Gemini Live native audio API is powerful but has quirks (tool count sensitivity, `<ctrl46>` control characters)
-- Semantic embedding comparison is fast enough (~10ms) for real-time interruption detection
+- Gemini Live native audio API is powerful but has quirks (tool count sensitivity, `<ctrl46>` control characters that need filtering)
 - Firestore transactions are essential when multiple agents write concurrently
-- The Background Agent pattern (separate model for inference) solves the problem of Live API limitations with tool calling
+- The Background Agent pattern (separate Gemini Flash model for inference) elegantly solves the problem of Live API limitations with complex tool calling
+- Native audio models work best with minimal configuration — adding speech_config or activity detection settings can cause unexpected behavior
 
 ---
 
 ## What's next for Smith
 
-- **Ablation study**: Quantitative measurement of Speculative Turn-taking vs volume-based VAD
+- **Coding agent integration**: Feed structured artifacts (requirements, architecture, tasks) to a coding agent for automated development
 - **Multi-participant tracking**: Distinguish speakers and assign tasks accordingly
 - **Export**: Generate PDF/Markdown reports from meeting artifacts
 - **Integration**: Connect to Jira, Linear, GitHub Issues for task export
-- **Proactive Audio**: Use Gemini's proactive audio feature for smarter response timing
+- **Template library**: Pre-built architecture patterns for common use cases
 
 ---
 
@@ -141,7 +121,6 @@ User Speaks During AI Output:
 
 - Gemini Live API
 - Gemini Flash
-- Gemini Embeddings
 - Google GenAI SDK
 - Cloud Run
 - Cloud Firestore
@@ -165,15 +144,13 @@ Shumpei Kobayashi
 
 ## Demo Video Notes
 
-See [demo-video-structure.md](demo-video-structure.md) for video script and structure.
+See [demo-video-script.md](demo-video-script.md) for video script.
 
 ### Key scenes to capture:
 1. Google login -> meeting room
 2. Start recording, say a project idea
 3. AI responds, outline + architecture auto-populates
-4. Show divergence meter during interruption
-5. Toggle Speculative Turn-taking ON/OFF comparison
-6. Switch JP/EN language mid-session
-7. Manual edit on a pane -> AI acknowledges the change
-8. Resize chat panel (drag)
-9. Show Firestore real-time sync in browser devtools
+4. Show pane auto-maximizing when AI edits
+5. Switch JP/EN language mid-session
+6. Manual edit on a pane -> AI acknowledges the change
+7. Resize chat panel (drag)

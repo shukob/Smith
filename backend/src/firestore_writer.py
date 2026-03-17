@@ -37,26 +37,35 @@ class FirestoreWriter:
             self.session_id
         )
 
-        # Create initial session document
-        await self._doc_ref.set({
-            "metadata": {
-                "created": datetime.now(timezone.utc).isoformat(),
-                "status": "active",
-            },
-            "requirements": [],
-            "summary": {
-                "text": "",
-                "topics_discussed": [],
-                "last_updated": datetime.now(timezone.utc).isoformat(),
-            },
-            "outline_nodes": [],
-            "architecture_elements": [],
-            "tasks": [],
-            "schedule_items": [],
-            "transcript": [],
-            "divergence_log": [],
-        })
-        print(f"[Firestore] Session document created: {self.session_id}")
+        # Check if session already exists (resume vs new)
+        doc = await self._doc_ref.get()
+        if doc.exists:
+            # Resume: only update status, preserve all data
+            await self._doc_ref.update({
+                "metadata.status": "active",
+            })
+            print(f"[Firestore] Session resumed: {self.session_id}")
+        else:
+            # New session: create initial document
+            await self._doc_ref.set({
+                "metadata": {
+                    "created": datetime.now(timezone.utc).isoformat(),
+                    "status": "active",
+                },
+                "requirements": [],
+                "summary": {
+                    "text": "",
+                    "topics_discussed": [],
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
+                },
+                "outline_nodes": [],
+                "architecture_elements": [],
+                "tasks": [],
+                "schedule_items": [],
+                "transcript": [],
+                "divergence_log": [],
+            })
+            print(f"[Firestore] Session created: {self.session_id}")
 
     async def upsert_requirement(self, requirement: dict) -> None:
         """Insert or update a requirement."""
